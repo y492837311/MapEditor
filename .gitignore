@@ -1,1 +1,6 @@
 Library/
+.gradle/
+.idea/
+/.idea/
+Temp/
+Logs/

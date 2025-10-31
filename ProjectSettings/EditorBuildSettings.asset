@@ -5,4 +5,13 @@ EditorBuildSettings:
   m_ObjectHideFlags: 0
   serializedVersion: 2
   m_Scenes: []
+  m_BuildProfiles: []
   m_configObjects: {}
+  m_SlimFeaturesWeixinMiniGame:
+    AllocateOverhead: 1
+    DecompressASTC: 0
+    DecompressDXT: 1
+    DecompressETC: 1
+    FreeTypeSfntPng: 1
+    LightProbe: 2
+    UseStringInternPool: 2
