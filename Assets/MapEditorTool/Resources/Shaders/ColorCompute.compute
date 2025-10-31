@@ -1,0 +1,115 @@
+#pragma kernel FloodFill
+#pragma kernel CheckColorConflicts
+#pragma kernel FindIsolatedPixels
+
+RWTexture2D<float4> Result;
+Texture2D<float4> SourceTexture;
+
+int2 StartPos;
+float4 TargetColor;
+float4 FillColor;
+int Width;
+int Height;
+float Tolerance;
+
+bool ColorsEqual(float4 a, float4 b, float tolerance)
+{
+    return length(a.rgb - b.rgb) < tolerance && abs(a.a - b.a) < tolerance;
+}
+
+[numthreads(8,8,1)]
+void FloodFill (uint3 id : SV_DispatchThreadID)
+{
+    uint2 pos = id.xy;
+    
+    if (pos.x >= Width || pos.y >= Height)
+        return;
+    
+    float4 currentColor = SourceTexture[pos];
+    
+    if (ColorsEqual(currentColor, TargetColor, Tolerance))
+    {
+        Result[pos] = FillColor;
+    }
+    else
+    {
+        Result[pos] = currentColor;
+    }
+}
+
+RWStructuredBuffer<int> ColorConflicts;
+StructuredBuffer<float4> ColorHistory;
+
+[numthreads(64,1,1)]
+void CheckColorConflicts (uint3 id : SV_DispatchThreadID)
+{
+    uint idx = id.x;
+    
+    if (idx >= 256)
+        return;
+    
+    float4 currentColor = ColorHistory[idx];
+    
+    // 跳过完全透明的颜色
+    if (currentColor.a < 0.01f) return;
+    
+    for (uint i = idx + 1; i < 256; i++)
+    {
+        float4 otherColor = ColorHistory[i];
+        if (otherColor.a < 0.01f) continue;
+        
+        if (ColorsEqual(currentColor, otherColor, 0.01f))
+        {
+            ColorConflicts[idx] = 1;
+            ColorConflicts[i] = 1;
+        }
+    }
+}
+
+RWStructuredBuffer<int2> IsolatedPixels;
+
+[numthreads(8,8,1)]
+void FindIsolatedPixels (uint3 id : SV_DispatchThreadID)
+{
+    uint2 pos = id.xy;
+    
+    if (pos.x >= Width || pos.y >= Height)
+        return;
+    
+    float4 centerColor = SourceTexture[pos];
+    
+    // 跳过透明像素
+    if (centerColor.a < 0.01f) return;
+    
+    int sameColorNeighbors = 0;
+    
+    for (int y = -1; y <= 1; y++)
+    {
+        for (int x = -1; x <= 1; x++)
+        {
+            if (x == 0 && y == 0) continue;
+            
+            uint2 neighborPos = uint2(pos.x + x, pos.y + y);
+            
+            if (neighborPos.x < Width && neighborPos.y < Height)
+            {
+                float4 neighborColor = SourceTexture[neighborPos];
+                if (ColorsEqual(neighborColor, centerColor, 0.01f))
+                {
+                    sameColorNeighbors++;
+                }
+            }
+        }
+    }
+    
+    if (sameColorNeighbors == 0)
+    {
+        uint index = pos.y * Width + pos.x;
+        IsolatedPixels[index] = int2(pos.x, pos.y);
+    }
+    else
+    {
+        uint index = pos.y * Width + pos.x;
+        IsolatedPixels[index] = int2(0, 0); // 清除之前的标记
+    }
+}

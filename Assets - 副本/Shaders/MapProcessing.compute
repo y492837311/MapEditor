@@ -1,0 +1,127 @@
+#pragma kernel DrawBrushKernel
+#pragma kernel FloodFillKernel
+#pragma kernel DetectErrorsKernel
+
+RWTexture2D<float4> Result; // 输出纹理
+Texture2D<float4> Source;   // 输入纹理
+
+// 全局参数
+int mapWidth;
+int mapHeight;
+int centerX;
+int centerY;
+float4 color;
+int brushSize;
+int startX;
+int startY;
+float4 fillColor;
+float4 originalColor;
+
+// 绘制笔刷内核
+[numthreads(8, 8, 1)]
+void DrawBrushKernel(uint3 threadID : SV_DispatchThreadID)
+{
+    uint x = threadID.x;
+    uint y = threadID.y;
+    
+    // 检查边界
+    if (x >= mapWidth || y >= mapHeight) return;
+    
+    // 获取当前像素
+    float4 currentPixel = Source[x, y];
+    
+    // 计算与中心点的距离
+    int dx = (int)x - centerX;
+    int dy = (int)y - centerY;
+    int distanceSquared = dx * dx + dy * dy;
+    int radius = brushSize / 2;
+    
+    // 如果在笔刷范围内，则绘制
+    if (distanceSquared <= radius * radius)
+    {
+        Result[x, y] = color;
+    }
+    else
+    {
+        Result[x, y] = currentPixel;
+    }
+}
+
+// 区域填充内核（简化的实现）
+[numthreads(8, 8, 1)]
+void FloodFillKernel(uint3 threadID : SV_DispatchThreadID)
+{
+    uint x = threadID.x;
+    uint y = threadID.y;
+    
+    // 检查边界
+    if (x >= mapWidth || y >= mapHeight) return;
+    
+    // 获取当前像素
+    float4 currentPixel = Source[x, y];
+    
+    // 简化的填充逻辑：如果当前像素颜色与原始颜色相似，则替换为填充颜色
+    float colorDiff = distance(currentPixel, originalColor);
+    if (colorDiff < 0.1) // 阈值可调整
+    {
+        Result[x, y] = fillColor;
+    }
+    else
+    {
+        Result[x, y] = currentPixel;
+    }
+}
+
+// 错误检测内核
+[numthreads(8, 8, 1)]
+void DetectErrorsKernel(uint3 threadID : SV_DispatchThreadID)
+{
+    uint x = threadID.x;
+    uint y = threadID.y;
+    
+    // 检查边界
+    if (x >= mapWidth || y >= mapHeight) return;
+    
+    // 获取当前像素
+    float4 currentPixel = Source[x, y];
+    
+    // 跳过透明像素
+    if (currentPixel.a < 0.1) return;
+    
+    // 检测孤立像素
+    bool isIsolated = true;
+    for (int dy = -1; dy <= 1; dy++)
+    {
+        for (int dx = -1; dx <= 1; dx++)
+        {
+            if (dx == 0 && dy == 0) continue; // 跳过中心像素
+            
+            uint nx = x + dx;
+            uint ny = y + dy;
+            
+            // 检查边界
+            if (nx < mapWidth && ny < mapHeight)
+            {
+                float4 neighborPixel = Source[nx, ny];
+                
+                // 如果相邻像素颜色相同，则不是孤立像素
+                if (distance(currentPixel, neighborPixel) < 0.1)
+                {
+                    isIsolated = false;
+                    break;
+                }
+            }
+        }
+        if (!isIsolated) break;
+    }
+    
+    // 如果是孤立像素，稍微改变颜色以标记
+    if (isIsolated)
+    {
+        Result[x, y] = float4(1.0, 0.0, 1.0, 1.0); // 紫色标记孤立像素
+    }
+    else
+    {
+        Result[x, y] = currentPixel;
+    }
+}

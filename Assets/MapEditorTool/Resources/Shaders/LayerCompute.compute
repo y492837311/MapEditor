@@ -1,0 +1,94 @@
+#pragma kernel MergeLayers
+
+StructuredBuffer<int> Source;
+StructuredBuffer<int> Target;
+RWStructuredBuffer<int> Result;
+float Opacity;
+int BlendMode;
+
+// 简化的颜色转换函数
+float4 DecodeColor(int colorInt)
+{
+    float4 color;
+    color.r = ((colorInt >> 24) & 0xFF) / 255.0;
+    color.g = ((colorInt >> 16) & 0xFF) / 255.0;
+    color.b = ((colorInt >> 8) & 0xFF) / 255.0;
+    color.a = (colorInt & 0xFF) / 255.0;
+    return color;
+}
+
+int EncodeColor(float4 color)
+{
+    // 限制颜色范围
+    color = saturate(color);
+    
+    int r = (int)(color.r * 255) << 24;
+    int g = (int)(color.g * 255) << 16;
+    int b = (int)(color.b * 255) << 8;
+    int a = (int)(color.a * 255);
+    return r | g | b | a;
+}
+
+// 简化的混合函数
+float4 SimpleBlend(float4 src, float4 dst, int mode, float opacity)
+{
+    src.a *= opacity; // 应用不透明度
+    
+    switch (mode)
+    {
+        case 0: // Normal
+            return lerp(dst, src, src.a);
+            
+        case 1: // Multiply
+            return float4(lerp(dst.rgb, dst.rgb * src.rgb, src.a), max(src.a, dst.a));
+            
+        case 2: // Screen
+            return float4(lerp(dst.rgb, 1.0 - (1.0 - dst.rgb) * (1.0 - src.rgb), src.a), max(src.a, dst.a));
+            
+        case 3: // Overlay
+            float3 overlay;
+            overlay.r = (dst.r < 0.5) ? (2.0 * dst.r * src.r) : (1.0 - 2.0 * (1.0 - dst.r) * (1.0 - src.r));
+            overlay.g = (dst.g < 0.5) ? (2.0 * dst.g * src.g) : (1.0 - 2.0 * (1.0 - dst.g) * (1.0 - src.g));
+            overlay.b = (dst.b < 0.5) ? (2.0 * dst.b * src.b) : (1.0 - 2.0 * (1.0 - dst.b) * (1.0 - src.b));
+            return float4(lerp(dst.rgb, overlay, src.a), max(src.a, dst.a));
+            
+        case 4: // Add
+            return float4(lerp(dst.rgb, dst.rgb + src.rgb, src.a), max(src.a, dst.a));
+            
+        case 5: // Subtract
+            return float4(lerp(dst.rgb, dst.rgb - src.rgb, src.a), max(src.a, dst.a));
+            
+        default: // Normal
+            return lerp(dst, src, src.a);
+    }
+}
+
+[numthreads(64,1,1)]
+void MergeLayers (uint3 id : SV_DispatchThreadID)
+{
+    uint idx = id.x;
+    
+    int srcColor = Source[idx];
+    int dstColor = Target[idx];
+    
+    // 如果源像素完全透明，直接使用目标像素
+    if (srcColor == 0) 
+    {
+        Result[idx] = dstColor;
+        return;
+    }
+    
+    float4 src = DecodeColor(srcColor);
+    float4 dst = DecodeColor(dstColor);
+    
+    // 如果目标像素完全透明且不透明度足够，直接使用源像素
+    if (dst.a < 0.01f && src.a * Opacity > 0.01f)
+    {
+        src.a *= Opacity;
+        Result[idx] = EncodeColor(src);
+        return;
+    }
+    
+    float4 result = SimpleBlend(src, dst, BlendMode, Opacity);
+    Result[idx] = EncodeColor(result);
+}
