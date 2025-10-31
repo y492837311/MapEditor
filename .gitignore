@@ -4,3 +4,4 @@ Library/
 /.idea/
 Temp/
 Logs/
+obj/
