@@ -7,7 +7,7 @@ namespace MapEditor
     public class ErrorDetectionManager
     {
         private MapEditorWindow editorWindow;
-        private List<MapError> detectedErrors = new List<MapError>();
+        private List<MapError> detectedErrors = new();
         private bool errorsVisible = true;
 
         public ErrorDetectionManager(MapEditorWindow window)

@@ -8,15 +8,16 @@ namespace MapEditor
         protected MapEditorWindow editorWindow;
         protected ToolType toolType;
 
+        protected EditOperation currentOperation;
+        protected bool isRecording = false;
+        
         public BaseEditorTool(MapEditorWindow window, ToolType type)
         {
             editorWindow = window;
             toolType = type;
         }
 
-        public virtual void OnMouseDown(Vector2Int position) { }
         public virtual void OnMouseDrag(Vector2Int position) { }
-        public virtual void OnMouseUp(Vector2Int position) { }
         public virtual void OnMouseMove(Vector2Int position) { }
         public virtual void DrawPreview(Rect canvasArea) { }
 
@@ -24,7 +25,78 @@ namespace MapEditor
         public virtual void OnDeactivate() { }
 
         public ToolType GetToolType() => toolType;
+        
+        protected void DebugPixelChange(int x, int y, Color32 previousColor, Color32 newColor, int previousBlockId, int newBlockId)
+        {
+            if (isRecording)
+            {
+                Debug.Log($"Recording pixel change at ({x}, {y}): " +
+                          $"Color: {previousColor} -> {newColor}, " +
+                          $"Block: {previousBlockId} -> {newBlockId}, " +
+                          $"ColorsEqual: {MapDataAsset.ColorsEqualForUndo(previousColor, newColor)}");
+            }
+        }
+        
+        public virtual void OnMouseDown(Vector2Int position)
+        {
+            StartRecording($"{toolType} at ({position.x}, {position.y})");
+        }
 
+        public virtual void OnMouseUp(Vector2Int position)
+        {
+            FinishRecording();
+        }
+
+        protected void StartRecording(string description)
+        {
+            // 确保没有正在进行的操作
+            if (isRecording && currentOperation != null)
+            {
+                Debug.LogWarning($"Overwriting unfinished operation: {currentOperation.description}");
+                FinishRecording();
+            }
+    
+            currentOperation = EditOperation.Create(description, GetOperationType());
+            isRecording = true;
+    
+            Debug.Log($"Started recording: {description}");
+        }
+
+        protected void FinishRecording()
+        {
+            if (isRecording && currentOperation != null)
+            {
+                if (currentOperation.pixelChanges.Count > 0)
+                {
+                    // 更新描述以包含像素数量
+                    currentOperation.description = $"{currentOperation.description} - {currentOperation.pixelChanges.Count} pixels";
+                    editorWindow.GetUndoRedoManager().RecordOperation(currentOperation);
+                    Debug.Log($"Finished recording: {currentOperation.description}");
+                }
+                else
+                {
+                    Debug.LogWarning($"Finished recording with no pixel changes: {currentOperation.description}");
+                }
+            }
+            else
+            {
+                Debug.LogWarning("FinishRecording called but no active recording");
+            }
+    
+            isRecording = false;
+            currentOperation = null;
+        }
+
+        protected void RecordPixelChange(int x, int y, Color32 previousColor, int previousBlockId, Color32 newColor, int newBlockId)
+        {
+            if (isRecording && currentOperation != null)
+            {
+                currentOperation.AddPixelChange(x, y, previousColor, previousBlockId, newColor, newBlockId);
+            }
+        }
+        
+        protected abstract EditOperation.OperationType GetOperationType();
+        
         protected void DrawBrushPreview(Rect canvasArea, Vector2Int position, int brushSize, Color color)
         {
             if (brushSize <= 1) return;

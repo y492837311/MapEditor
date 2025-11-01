@@ -14,7 +14,12 @@ namespace MapEditor
         public EraserEditorTool(MapEditorWindow window) : base(window, ToolType.Eraser)
         {
         }
-
+        
+        protected override EditOperation.OperationType GetOperationType()
+        {
+            return EditOperation.OperationType.Erase;
+        }
+        
         public override void OnMouseDown(Vector2Int position)
         {
             if (!IsPositionValid(position)) return;

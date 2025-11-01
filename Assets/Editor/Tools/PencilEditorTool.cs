@@ -10,7 +10,6 @@ namespace MapEditor
     {
         private Vector2Int lastPosition;
         private bool isDrawing = false;
-        private List<Vector2Int> pendingPixels = new List<Vector2Int>();
 
         public PencilEditorTool(MapEditorWindow window) : base(window, ToolType.Pencil)
         {
@@ -18,21 +17,15 @@ namespace MapEditor
 
         public override void OnMouseDown(Vector2Int position)
         {
-            if (!IsPositionValid(position)) 
-            {
-                Debug.LogWarning($"Invalid position: {position}");
-                return;
-            }
+            if (!IsPositionValid(position)) return;
+
+            // 开始记录操作
+            StartRecording($"Draw at ({position.x}, {position.y})");
 
             isDrawing = true;
             lastPosition = position;
-    
-            // 调试输出
-            Debug.Log($"MouseDown at map position: {position}");
-    
+        
             DrawAtPosition(position);
-            editorWindow.GetCurrentMapData()?.ApplyChangesImmediate();
-            editorWindow.Repaint();
         }
 
         public override void OnMouseDrag(Vector2Int position)
@@ -43,12 +36,7 @@ namespace MapEditor
             {
                 DrawLine(lastPosition, position);
                 lastPosition = position;
-
-                // 每10个像素或每帧刷新一次
-                if (pendingPixels.Count >= 10)
-                {
-                    FlushPendingPixels();
-                }
+                FlushPendingPixels();
             }
         }
 
@@ -57,39 +45,113 @@ namespace MapEditor
             if (!isDrawing) return;
 
             isDrawing = false;
-            FlushPendingPixels(); // 最终刷新
+    
+            // 确保所有挂起的像素都被应用
+            FlushPendingPixels();
+    
+            // 强制应用纹理更改
+            var mapData = editorWindow.GetCurrentMapData();
+            if (mapData != null)
+            {
+                mapData.ForceApplyChanges();
+            }
+    
+            FinishRecording();
             EditorUtility.SetDirty(editorWindow.GetCurrentMapData());
+    
+            // 强制重绘
+            editorWindow.Repaint();
+    
+            Debug.Log($"Pencil tool operation completed at ({position.x}, {position.y})");
+        }
+        
+        protected override EditOperation.OperationType GetOperationType()
+        {
+            return EditOperation.OperationType.Draw;
         }
 
         private void DrawAtPosition(Vector2Int position)
         {
+            var mapData = editorWindow.GetCurrentMapData();
+            if (mapData == null) return;
+        
             int brushSize = editorWindow.GetBrushSize();
+            Color color = editorWindow.GetCurrentColor();
+            int blockId = editorWindow.GetCurrentBlockId();
+
             if (brushSize == 1)
             {
-                pendingPixels.Add(position);
+                DrawSinglePixel(position, color, blockId, mapData);
             }
             else
             {
-                DrawBrush(position, brushSize);
+                DrawBrush(position, brushSize, color, blockId, mapData);
             }
         }
+        
+        private void DrawSinglePixel(Vector2Int position, Color color, int blockId, MapDataAsset mapData)
+        {
+            if (!IsPositionValid(position)) return;
 
+            // 确保使用 Color32 避免浮点数问题
+            Color32 newColor32 = color;
+            Color32 previousColor = mapData.GetPixel(position.x, position.y);
+            int previousBlockId = mapData.GetBlockId(position.x, position.y);
+
+            // 严格检查是否需要更改
+            bool shouldChange = !MapDataAsset.ColorsEqualForUndo(previousColor, newColor32) || 
+                                previousBlockId != blockId;
+
+            if (shouldChange)
+            {
+                // 调试信息
+                Debug.Log($"Drawing pixel at ({position.x}, {position.y}): " +
+                          $"{previousColor} -> {newColor32}, " +
+                          $"Block: {previousBlockId} -> {blockId}");
+
+                // 记录变更（在应用之前记录原始状态）
+                RecordPixelChange(position.x, position.y, previousColor, previousBlockId, newColor32, blockId);
+
+                // 应用新状态
+                mapData.SetPixel(position.x, position.y, newColor32, blockId);
+        
+                // 立即验证
+                mapData.ValidatePixelOperation(position.x, position.y, newColor32, blockId, "Draw");
+            }
+            else
+            {
+                Debug.Log($"Pixel unchanged at ({position.x}, {position.y}) - identical state");
+            }
+        }
+        
+        private bool ColorsEqual(Color32 a, Color32 b)
+        {
+            return a.r == b.r && a.g == b.g && a.b == b.b && a.a == b.a;
+        }
+        
         private void DrawLine(Vector2Int start, Vector2Int end)
         {
+            var mapData = editorWindow.GetCurrentMapData();
+            if (mapData == null) return;
+        
             int brushSize = editorWindow.GetBrushSize();
+            Color color = editorWindow.GetCurrentColor();
+            int blockId = editorWindow.GetCurrentBlockId();
+
             if (brushSize == 1)
             {
-                DrawLineSinglePixel(start, end);
+                DrawLineSinglePixel(start, end, color, blockId, mapData);
             }
             else
             {
-                DrawLineThick(start, end, brushSize);
+                DrawLineThick(start, end, brushSize, color, blockId, mapData);
             }
         }
 
-        private void DrawBrush(Vector2Int center, int size)
+        private void DrawBrush(Vector2Int center, int size, Color color, int blockId, MapDataAsset mapData)
         {
             int radius = size / 2;
+
             for (int x = -radius; x <= radius; x++)
             {
                 for (int y = -radius; y <= radius; y++)
@@ -99,15 +161,19 @@ namespace MapEditor
                         Vector2Int pos = new Vector2Int(center.x + x, center.y + y);
                         if (IsPositionValid(pos))
                         {
-                            pendingPixels.Add(pos);
+                            DrawSinglePixel(pos, color, blockId, mapData);
                         }
                     }
                 }
             }
         }
 
-        private void DrawLineSinglePixel(Vector2Int start, Vector2Int end)
+        // 在 PencilEditorTool 中添加调试信息
+        private void DrawLineSinglePixel(Vector2Int start, Vector2Int end, Color color, int blockId, MapDataAsset mapData)
         {
+            int pixelsDrawn = 0;
+            int pixelsRecorded = 0;
+    
             // Bresenham 直线算法
             int dx = Mathf.Abs(end.x - start.x);
             int dy = Mathf.Abs(end.y - start.y);
@@ -121,7 +187,21 @@ namespace MapEditor
             {
                 if (IsPositionValid(current))
                 {
-                    pendingPixels.Add(current);
+                    pixelsDrawn++;
+            
+                    // 记录原始状态
+                    Color32 previousColor = mapData.GetPixel(current.x, current.y);
+                    int previousBlockId = mapData.GetBlockId(current.x, current.y);
+            
+                    // 应用新状态
+                    mapData.SetPixel(current.x, current.y, color, blockId);
+            
+                    // 记录变更
+                    if (isRecording && currentOperation != null)
+                    {
+                        RecordPixelChange(current.x, current.y, previousColor, previousBlockId, color, blockId);
+                        pixelsRecorded++;
+                    }
                 }
 
                 if (current.x == end.x && current.y == end.y) break;
@@ -132,19 +212,24 @@ namespace MapEditor
                     err -= dy;
                     current.x += sx;
                 }
-
                 if (e2 < dx)
                 {
                     err += dx;
                     current.y += sy;
                 }
             }
+    
+            // 调试信息
+            if (pixelsDrawn > 0)
+            {
+                Debug.Log($"Line drawn: {pixelsDrawn} pixels, recorded: {pixelsRecorded} pixels, isRecording: {isRecording}");
+            }
         }
 
-        private void DrawLineThick(Vector2Int start, Vector2Int end, int thickness)
+        private void DrawLineThick(Vector2Int start, Vector2Int end, int thickness, Color color, int blockId, MapDataAsset mapData)
         {
-            DrawLineSinglePixel(start, end);
-
+            DrawLineSinglePixel(start, end, color, blockId, mapData);
+        
             if (thickness > 1)
             {
                 int extra = thickness - 1;
@@ -152,11 +237,13 @@ namespace MapEditor
                 {
                     DrawLineSinglePixel(
                         new Vector2Int(start.x, start.y + i),
-                        new Vector2Int(end.x, end.y + i)
+                        new Vector2Int(end.x, end.y + i),
+                        color, blockId, mapData
                     );
                     DrawLineSinglePixel(
                         new Vector2Int(start.x, start.y - i),
-                        new Vector2Int(end.x, end.y - i)
+                        new Vector2Int(end.x, end.y - i),
+                        color, blockId, mapData
                     );
                 }
             }
@@ -167,22 +254,9 @@ namespace MapEditor
         /// </summary>
         private void FlushPendingPixels()
         {
-            if (pendingPixels.Count == 0) return;
-
             var mapData = editorWindow.GetCurrentMapData();
             if (mapData == null) return;
-
-            Color color = editorWindow.GetCurrentColor();
-            int blockId = editorWindow.GetCurrentBlockId();
-
-            foreach (var pos in pendingPixels)
-            {
-                mapData.SetPixel(pos.x, pos.y, color, blockId);
-            }
-
             mapData.ApplyChangesImmediate();
-            pendingPixels.Clear();
-
             editorWindow.Repaint(); // 请求重绘
         }
         

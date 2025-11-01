@@ -41,9 +41,6 @@
     <ImplicitlyExpandDesignTimeFacades>false</ImplicitlyExpandDesignTimeFacades>
   </PropertyGroup>
   <ItemGroup>
-    <Analyzer Include="D:\Project\Unity\MapEditor\Library\PackageCache\com.unity.collab-proxy@2.10.1\Lib\Editor\Unity.Plastic.Newtonsoft.Json.dll" />
-    <Analyzer Include="D:\Project\Unity\MapEditor\Library\PackageCache\com.unity.collab-proxy@2.10.1\Lib\Editor\log4netPlastic.dll" />
-    <Analyzer Include="D:\Project\Unity\MapEditor\Library\PackageCache\com.unity.collab-proxy@2.10.1\Lib\Editor\Unity.Plastic.Antlr3.Runtime.dll" />
     <Analyzer Include="C:\Program Files\Tuanjie\Hub\Editor\2022.3.61t7\Editor\Data\Tools\Unity.SourceGenerators\Unity.SourceGenerators.dll" />
     <Analyzer Include="C:\Program Files\Tuanjie\Hub\Editor\2022.3.61t7\Editor\Data\Tools\Unity.SourceGenerators\Unity.Properties.SourceGenerator.dll" />
   </ItemGroup>
@@ -52,6 +49,7 @@
     <Compile Include="Assets\Editor\Tools\EyedropperEditorTool.cs" />
     <Compile Include="Assets\Editor\ImportExport\MapDataExporter.cs" />
     <Compile Include="Assets\Editor\EditorEnums.cs" />
+    <Compile Include="Assets\Editor\Managers\UndoRedoManager.cs" />
     <Compile Include="Assets\Editor\UI\LayersPanel.cs" />
     <Compile Include="Assets\Editor\UI\MapEditorToolbar.cs" />
     <Compile Include="Assets\Editor\Rendering\MapTextureRenderer.cs" />
@@ -61,12 +59,14 @@
     <Compile Include="Assets\Editor\MapEditorWindow.cs" />
     <Compile Include="Assets\Editor\ErrorDetectionManager.cs" />
     <Compile Include="Assets\Editor\MapEditorDragWindow.cs" />
+    <Compile Include="Assets\Editor\EditOperation.cs" />
     <Compile Include="Assets\Editor\Tools\PencilEditorTool.cs" />
     <Compile Include="Assets\Editor\Tools\BucketEditorTool.cs" />
-    <Compile Include="Assets\Editor\Tools\IconGenerator.cs" />
+    <Compile Include="Assets\Editor\SelectionTool.cs" />
     <Compile Include="Assets\Editor\Tools\EraserEditorTool.cs" />
     <Compile Include="Assets\Editor\UI\PropertiesPanel.cs" />
     <Compile Include="Assets\Editor\UI\ColorPickerPanel.cs" />
+    <Compile Include="Assets\Editor\UndoRedoWindow.cs" />
     <Reference Include="UnityEngine">
       <HintPath>C:\Program Files\Tuanjie\Hub\Editor\2022.3.61t7\Editor\Data\Managed\UnityEngine\UnityEngine.dll</HintPath>
     </Reference>
@@ -352,9 +352,6 @@
     <Reference Include="ReportGeneratorMerged">
       <HintPath>D:\Project\Unity\MapEditor\Library\PackageCache\com.unity.testtools.codecoverage@1.2.6\lib\ReportGenerator\ReportGeneratorMerged.dll</HintPath>
     </Reference>
-    <Reference Include="unityplastic">
-      <HintPath>D:\Project\Unity\MapEditor\Library\PackageCache\com.unity.collab-proxy@2.10.1\Lib\Editor\unityplastic.dll</HintPath>
-    </Reference>
     <Reference Include="Unity.Plastic.Antlr3.Runtime">
       <HintPath>D:\Project\Unity\MapEditor\Library\PackageCache\com.unity.collab-proxy@2.10.1\Lib\Editor\Unity.Plastic.Antlr3.Runtime.dll</HintPath>
     </Reference>
@@ -366,6 +363,9 @@
     </Reference>
     <Reference Include="Unity.VisualScripting.IonicZip">
       <HintPath>D:\Project\Unity\MapEditor\Library\PackageCache\com.unity.visualscripting@1.9.4\Editor\VisualScripting.Core\Dependencies\DotNetZip\Unity.VisualScripting.IonicZip.dll</HintPath>
+    </Reference>
+    <Reference Include="unityplastic">
+      <HintPath>D:\Project\Unity\MapEditor\Library\PackageCache\com.unity.collab-proxy@2.10.1\Lib\Editor\unityplastic.dll</HintPath>
     </Reference>
     <Reference Include="Unity.VisualScripting.Antlr3.Runtime">
       <HintPath>D:\Project\Unity\MapEditor\Library\PackageCache\com.unity.visualscripting@1.9.4\Runtime\VisualScripting.Flow\Dependencies\NCalc\Unity.VisualScripting.Antlr3.Runtime.dll</HintPath>

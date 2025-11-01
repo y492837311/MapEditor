@@ -154,5 +154,33 @@ namespace MapEditor
                 // 实现删除选择区域
             }
         }
+        
+        // 在 PropertiesPanel 中添加 Block 信息显示：
+
+        private void DrawBlockInfo()
+        {
+            var currentBlock = editorWindow.GetCurrentColorBlock();
+            if (currentBlock.HasValue)
+            {
+                EditorGUILayout.LabelField("Current Block", EditorStyles.miniBoldLabel);
+        
+                var block = currentBlock.Value;
+                EditorGUILayout.BeginHorizontal();
+                {
+                    // 颜色显示
+                    Rect colorRect = GUILayoutUtility.GetRect(20, 20);
+                    EditorGUI.DrawRect(colorRect, block.color);
+            
+                    // Block 信息
+                    EditorGUILayout.BeginVertical();
+                    {
+                        EditorGUILayout.LabelField(block.name, EditorStyles.miniBoldLabel);
+                        EditorGUILayout.LabelField($"ID: {block.id}", EditorStyles.miniLabel);
+                    }
+                    EditorGUILayout.EndVertical();
+                }
+                EditorGUILayout.EndHorizontal();
+            }
+        }
     }
 }

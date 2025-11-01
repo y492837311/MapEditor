@@ -16,6 +16,11 @@ namespace MapEditor
             PickColorAtPosition(position);
         }
 
+        protected override EditOperation.OperationType GetOperationType()
+        {
+            return EditOperation.OperationType.Erase;
+        }
+
         public override void DrawPreview(Rect canvasArea)
         {
             // 显示取色器光标

@@ -4,15 +4,12 @@ namespace MapEditor
 {
     public partial class MapEditorWindow
     {
-        // 在 MapEditorWindow 类的成员变量区域添加：
         private Vector2 panOffset = Vector2.zero;
         private bool isPanning = false;
         private Vector2 panStartMousePosition;
         private Vector2 panStartOffset;
         private Vector2 lastMousePosition;
         
-        // 在 MapEditorWindow 类中添加这些方法：
-
         /// <summary>
         /// 开始拖动地图
         /// </summary>
