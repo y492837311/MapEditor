@@ -7,7 +7,7 @@ namespace MapEditor
     public class ErrorDetectionManager
     {
         private MapEditorWindow editorWindow;
-        private List<MapError> detectedErrors = new();
+        private List<MapError> detectedErrors = new List<MapError>();
         private bool errorsVisible = true;
 
         public ErrorDetectionManager(MapEditorWindow window)
@@ -20,28 +20,17 @@ namespace MapEditor
             detectedErrors.Clear();
             
             var mapData = editorWindow.GetCurrentMapData();
-            if (mapData == null || mapData.GetColorMapTexture() == null) return;
+            if (mapData == null) return;
 
             EditorUtility.DisplayProgressBar("Error Check", "Analyzing map...", 0f);
 
             try
             {
-                Color32[] pixels = mapData.GetColorMapTexture().GetPixels32();
-                
-                // 检测孤立像素
-                DetectIsolatedPixels(pixels, mapData.width, mapData.height);
-                
-                // 检测三色交点
-                DetectThreeColorIntersections(pixels, mapData.width, mapData.height);
-                
-                // 检测单像素线
-                DetectSinglePixelLines(pixels, mapData.width, mapData.height);
-                
-                // 检测颜色冲突
-                DetectColorConflicts(pixels, mapData);
-                
-                // 检测特殊地形规则
-                DetectSpecialTerrainRules(pixels, mapData.width, mapData.height);
+                // 使用网格数据进行分析
+                DetectIsolatedPixels(mapData);
+                DetectThreeColorIntersections(mapData);
+                DetectColorConflicts(mapData);
+                DetectSpecialTerrainRules(mapData);
 
                 EditorUtility.ClearProgressBar();
                 
@@ -62,16 +51,16 @@ namespace MapEditor
             }
         }
 
-        private void DetectIsolatedPixels(Color32[] pixels, int width, int height)
+        private void DetectIsolatedPixels(MapDataAsset mapData)
         {
-            for (int y = 1; y < height - 1; y++)
+            for (int y = 1; y < mapData.height - 1; y++)
             {
-                for (int x = 1; x < width - 1; x++)
+                for (int x = 1; x < mapData.width - 1; x++)
                 {
-                    int index = y * width + x;
-                    if (pixels[index].a > 0) // 非透明像素
+                    var pixel = mapData.GetGridPixel(x, y);
+                    if (pixel.color.a > 0) // 非透明像素
                     {
-                        if (IsPixelIsolated(pixels, x, y, width, height))
+                        if (IsPixelIsolated(mapData, x, y))
                         {
                             detectedErrors.Add(new MapError
                             {
@@ -85,9 +74,9 @@ namespace MapEditor
             }
         }
 
-        private bool IsPixelIsolated(Color32[] pixels, int x, int y, int width, int height)
+        private bool IsPixelIsolated(MapDataAsset mapData, int x, int y)
         {
-            Color32 centerColor = pixels[y * width + x];
+            var centerPixel = mapData.GetGridPixel(x, y);
             
             // 检查8个相邻像素
             for (int dy = -1; dy <= 1; dy++)
@@ -99,10 +88,10 @@ namespace MapEditor
                     int nx = x + dx;
                     int ny = y + dy;
                     
-                    if (nx >= 0 && nx < width && ny >= 0 && ny < height)
+                    if (nx >= 0 && nx < mapData.width && ny >= 0 && ny < mapData.height)
                     {
-                        int neighborIndex = ny * width + nx;
-                        if (pixels[neighborIndex].a > 0 && ColorsEqual(pixels[neighborIndex], centerColor))
+                        var neighborPixel = mapData.GetGridPixel(nx, ny);
+                        if (neighborPixel.color.a > 0 && ColorsEqual(neighborPixel.color, centerPixel.color))
                         {
                             return false; // 找到相同颜色的邻居
                         }
@@ -113,16 +102,16 @@ namespace MapEditor
             return true; // 没有找到相同颜色的邻居
         }
 
-        private void DetectThreeColorIntersections(Color32[] pixels, int width, int height)
+        private void DetectThreeColorIntersections(MapDataAsset mapData)
         {
-            for (int y = 1; y < height - 1; y++)
+            for (int y = 1; y < mapData.height - 1; y++)
             {
-                for (int x = 1; x < width - 1; x++)
+                for (int x = 1; x < mapData.width - 1; x++)
                 {
-                    int index = y * width + x;
-                    if (pixels[index].a > 0)
+                    var pixel = mapData.GetGridPixel(x, y);
+                    if (pixel.color.a > 0)
                     {
-                        if (IsThreeColorIntersection(pixels, x, y, width, height))
+                        if (IsThreeColorIntersection(mapData, x, y))
                         {
                             detectedErrors.Add(new MapError
                             {
@@ -136,7 +125,7 @@ namespace MapEditor
             }
         }
 
-        private bool IsThreeColorIntersection(Color32[] pixels, int x, int y, int width, int height)
+        private bool IsThreeColorIntersection(MapDataAsset mapData, int x, int y)
         {
             var uniqueColors = new HashSet<Color32>();
             
@@ -151,12 +140,12 @@ namespace MapEditor
                 int nx = x + dir.x;
                 int ny = y + dir.y;
                 
-                if (nx >= 0 && nx < width && ny >= 0 && ny < height)
+                if (nx >= 0 && nx < mapData.width && ny >= 0 && ny < mapData.height)
                 {
-                    Color32 neighborColor = pixels[ny * width + nx];
-                    if (neighborColor.a > 0)
+                    var neighborPixel = mapData.GetGridPixel(nx, ny);
+                    if (neighborPixel.color.a > 0)
                     {
-                        uniqueColors.Add(neighborColor);
+                        uniqueColors.Add(neighborPixel.color);
                     }
                 }
             }
@@ -164,31 +153,22 @@ namespace MapEditor
             return uniqueColors.Count >= 3;
         }
 
-        private void DetectSinglePixelLines(Color32[] pixels, int width, int height)
-        {
-            // 实现单像素线检测逻辑
-            // 这需要检测宽度只有1像素的连接区域
-        }
-
-        private void DetectColorConflicts(Color32[] pixels, MapDataAsset mapData)
+        private void DetectColorConflicts(MapDataAsset mapData)
         {
             // 检测颜色冲突：相同颜色对应多个block ID
             var colorToBlockMap = new Dictionary<Color32, int>();
             
-            for (int i = 0; i < pixels.Length; i++)
+            for (int y = 0; y < mapData.height; y++)
             {
-                if (pixels[i].a > 0)
+                for (int x = 0; x < mapData.width; x++)
                 {
-                    int blockId = FindBlockIdForColor(mapData, pixels[i]);
-                    if (blockId != 0)
+                    var pixel = mapData.GetGridPixel(x, y);
+                    if (pixel.color.a > 0)
                     {
-                        if (colorToBlockMap.ContainsKey(pixels[i]))
+                        if (colorToBlockMap.ContainsKey(pixel.color))
                         {
-                            if (colorToBlockMap[pixels[i]] != blockId)
+                            if (colorToBlockMap[pixel.color] != pixel.blockId)
                             {
-                                int x = i % mapData.width;
-                                int y = i / mapData.width;
-                                
                                 detectedErrors.Add(new MapError
                                 {
                                     type = ErrorType.ColorConflict,
@@ -199,29 +179,18 @@ namespace MapEditor
                         }
                         else
                         {
-                            colorToBlockMap[pixels[i]] = blockId;
+                            colorToBlockMap[pixel.color] = pixel.blockId;
                         }
                     }
                 }
             }
         }
 
-        private void DetectSpecialTerrainRules(Color32[] pixels, int width, int height)
+        private void DetectSpecialTerrainRules(MapDataAsset mapData)
         {
             // 实现特殊地形规则检测
             // 例如：关隘必须与三个普通地块相邻等
-        }
-
-        private int FindBlockIdForColor(MapDataAsset mapData, Color32 color)
-        {
-            foreach (var block in mapData.colorBlocks)
-            {
-                if (ColorsEqual(block.color, color))
-                {
-                    return block.id;
-                }
-            }
-            return 0;
+            // 这里可以根据具体游戏规则实现
         }
 
         private bool ColorsEqual(Color32 a, Color32 b)
@@ -250,8 +219,8 @@ namespace MapEditor
 
         private void DrawErrorMarker(Rect canvasArea, MapError error)
         {
-            Vector2 screenPos = editorWindow.ScreenToMapPosition(
-                new Vector2(error.position.x, error.position.y), canvasArea);
+            Vector2 screenPos = editorWindow.MapToScreenPosition(
+                new Vector2(error.position.x + 0.5f, error.position.y + 0.5f), canvasArea);
 
             Color errorColor = GetErrorColor(error.type);
             Handles.color = errorColor;

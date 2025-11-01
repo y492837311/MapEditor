@@ -50,6 +50,7 @@
     <Compile Include="Assets\Editor\ImportExport\MapDataExporter.cs" />
     <Compile Include="Assets\Editor\EditorEnums.cs" />
     <Compile Include="Assets\Editor\Managers\UndoRedoManager.cs" />
+    <Compile Include="Assets\Editor\Managers\ErrorDetectionManager.cs" />
     <Compile Include="Assets\Editor\UI\LayersPanel.cs" />
     <Compile Include="Assets\Editor\UI\MapEditorToolbar.cs" />
     <Compile Include="Assets\Editor\Rendering\MapTextureRenderer.cs" />
@@ -57,14 +58,13 @@
     <Compile Include="Assets\Editor\ImportExport\MapDataImporter.cs" />
     <Compile Include="Assets\Editor\ColorPickerWindow.cs" />
     <Compile Include="Assets\Editor\MapEditorWindow.cs" />
-    <Compile Include="Assets\Editor\ErrorDetectionManager.cs" />
     <Compile Include="Assets\Editor\MapEditorDragWindow.cs" />
     <Compile Include="Assets\Editor\EditOperation.cs" />
     <Compile Include="Assets\Editor\Tools\PencilEditorTool.cs" />
     <Compile Include="Assets\Editor\Tools\BucketEditorTool.cs" />
-    <Compile Include="Assets\Editor\SelectionTool.cs" />
     <Compile Include="Assets\Editor\Tools\EraserEditorTool.cs" />
     <Compile Include="Assets\Editor\UI\PropertiesPanel.cs" />
+    <Compile Include="Assets\Editor\Tools\SelectionTool.cs" />
     <Compile Include="Assets\Editor\UI\ColorPickerPanel.cs" />
     <Compile Include="Assets\Editor\UndoRedoWindow.cs" />
     <Reference Include="UnityEngine">

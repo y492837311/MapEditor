@@ -41,28 +41,34 @@ namespace MapEditor
             }
         }
 
+        /// <summary>
+        /// 渲染地图到目标纹理
+        /// </summary>
         public void RenderMap(MapDataAsset mapData, RenderTexture target, Texture2D background = null)
         {
-            if (mapData == null || mapData.GetColorMapTexture() == null) return;
+            if (mapData == null) return;
+
+            // 获取渲染纹理
+            Texture2D colorMapTexture = mapData.GetRenderTexture();
+            if (colorMapTexture == null) return;
 
             if (useGPUAcceleration && SystemInfo.supportsComputeShaders)
             {
-                RenderWithComputeShader(mapData, target, background);
+                RenderWithComputeShader(colorMapTexture, target, background);
             }
             else
             {
-                RenderWithMaterial(mapData, target, background);
+                RenderWithMaterial(colorMapTexture, target, background);
             }
         }
 
-        private void RenderWithComputeShader(MapDataAsset mapData, RenderTexture target, Texture2D background)
+        private void RenderWithComputeShader(Texture2D colorMap, RenderTexture target, Texture2D background)
         {
-            // 这里实现Compute Shader渲染逻辑
             // 由于团结引擎1.6的Compute Shader支持可能有限，这里提供备选方案
-            RenderWithMaterial(mapData, target, background);
+            RenderWithMaterial(colorMap, target, background);
         }
 
-        private void RenderWithMaterial(MapDataAsset mapData, RenderTexture target, Texture2D background)
+        private void RenderWithMaterial(Texture2D colorMap, RenderTexture target, Texture2D background)
         {
             RenderTexture previous = RenderTexture.active;
             RenderTexture.active = target;
@@ -71,7 +77,7 @@ namespace MapEditor
 
             if (visualizationMaterial != null)
             {
-                visualizationMaterial.SetTexture("_ColorMap", mapData.GetColorMapTexture());
+                visualizationMaterial.SetTexture("_ColorMap", colorMap);
                 visualizationMaterial.SetTexture("_Background", background);
                 visualizationMaterial.SetFloat("_ShowBackground", background != null ? 1.0f : 0.0f);
 
@@ -94,6 +100,9 @@ namespace MapEditor
             RenderTexture.active = previous;
         }
 
+        /// <summary>
+        /// 更新材质属性
+        /// </summary>
         public void UpdateMaterialProperties(float zoomLevel, bool showGrid, bool showErrors)
         {
             if (visualizationMaterial != null)
@@ -104,6 +113,9 @@ namespace MapEditor
             }
         }
 
+        /// <summary>
+        /// 清理资源
+        /// </summary>
         public void Cleanup()
         {
             if (visualizationMaterial != null)
@@ -116,6 +128,33 @@ namespace MapEditor
                 previewTexture.Release();
                 Object.DestroyImmediate(previewTexture);
             }
+        }
+
+        /// <summary>
+        /// 创建预览纹理
+        /// </summary>
+        public RenderTexture CreatePreviewTexture(int width, int height)
+        {
+            if (previewTexture != null)
+            {
+                previewTexture.Release();
+                Object.DestroyImmediate(previewTexture);
+            }
+
+            previewTexture = new RenderTexture(width, height, 0, RenderTextureFormat.ARGB32);
+            previewTexture.filterMode = FilterMode.Point;
+            previewTexture.wrapMode = TextureWrapMode.Clamp;
+            previewTexture.Create();
+
+            return previewTexture;
+        }
+
+        /// <summary>
+        /// 获取预览纹理
+        /// </summary>
+        public RenderTexture GetPreviewTexture()
+        {
+            return previewTexture;
         }
     }
 }

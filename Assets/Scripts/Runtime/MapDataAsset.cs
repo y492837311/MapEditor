@@ -1,126 +1,293 @@
-﻿// Scripts/Runtime/MapDataAsset.cs
-using UnityEngine;
+﻿using UnityEngine;
 using System.Collections.Generic;
+using System;
 
 namespace MapEditor
 {
     [CreateAssetMenu(fileName = "MapData", menuName = "Map Editor/Map Data")]
     public class MapDataAsset : ScriptableObject
     {
-        public int width = 4096;
-        public int height = 2048;
+        [System.Serializable]
+        public struct GridPixel
+        {
+            public Color32 color;
+            public int blockId;
+            
+            public GridPixel(Color32 color, int blockId)
+            {
+                this.color = color;
+                this.blockId = blockId;
+            }
+            
+            public bool IsEmpty => color.a == 0;
+            
+            public bool Equals(GridPixel other)
+            {
+                return color.r == other.color.r && 
+                       color.g == other.color.g && 
+                       color.b == other.color.b && 
+                       color.a == other.color.a && 
+                       blockId == other.blockId;
+            }
+        }
+
+        [System.Serializable]
+        public struct PixelOperation
+        {
+            public int x;
+            public int y;
+            public Color32 color;
+            public int blockId;
+            
+            public PixelOperation(int x, int y, Color32 color, int blockId)
+            {
+                this.x = x;
+                this.y = y;
+                this.color = color;
+                this.blockId = blockId;
+            }
+        }
+
+        [Header("Map Settings")]
+        public int width = 1024;
+        public int height = 512;
         public Texture2D backgroundTexture;
         public List<ColorBlock> colorBlocks = new List<ColorBlock>();
         
+        // 核心网格数据
         [System.NonSerialized]
-        public Texture2D colorMapTexture;
-        [System.NonSerialized]
-        private int[,] blockIdMap;
+        private GridPixel[,] pixelGrid;
         
+        // 渲染纹理
         [System.NonSerialized]
-        private bool isDirty = false;
+        private Texture2D renderTexture;
+        private bool isTextureDirty = true;
 
-        public Texture2D GetColorMapTexture()
+        // 初始化网格
+        public void InitializeGrid()
         {
-            if (colorMapTexture == null)
+            if (pixelGrid == null || pixelGrid.GetLength(0) != width || pixelGrid.GetLength(1) != height)
             {
-                InitializeTexture();
+                pixelGrid = new GridPixel[width, height];
+                ClearGrid();
+                isTextureDirty = true;
             }
-            return colorMapTexture;
         }
-        
-        private void InitializeBlockIdMap()
+
+        // 清空网格
+        public void ClearGrid()
         {
-            if (blockIdMap == null)
+            if (pixelGrid == null) InitializeGrid();
+            
+            for (int y = 0; y < height; y++)
             {
-                blockIdMap = new int[width, height];
-                for (int y = 0; y < height; y++)
+                for (int x = 0; x < width; x++)
                 {
-                    for (int x = 0; x < width; x++)
+                    pixelGrid[x, y] = new GridPixel(new Color32(0, 0, 0, 0), 0);
+                }
+            }
+            isTextureDirty = true;
+        }
+
+        // 获取网格像素
+        public GridPixel GetGridPixel(int x, int y)
+        {
+            if (pixelGrid == null) InitializeGrid();
+            
+            if (x < 0 || x >= width || y < 0 || y >= height)
+                return new GridPixel(new Color32(0, 0, 0, 0), 0);
+                
+            return pixelGrid[x, y];
+        }
+
+        // 设置网格像素
+        public void SetGridPixel(int x, int y, Color32 color, int blockId)
+        {
+            if (pixelGrid == null) InitializeGrid();
+            
+            if (x < 0 || x >= width || y < 0 || y >= height)
+                return;
+
+            var newPixel = new GridPixel(color, blockId);
+            if (!pixelGrid[x, y].Equals(newPixel))
+            {
+                pixelGrid[x, y] = newPixel;
+                isTextureDirty = true;
+            }
+        }
+
+        /// <summary>
+        /// 批量设置网格像素 - 超高性能版本
+        /// </summary>
+        public void SetGridPixelsBatch(List<PixelOperation> operations)
+        {
+            if (pixelGrid == null) InitializeGrid();
+    
+            bool changed = false;
+            int operationCount = operations.Count;
+    
+            // 使用快速循环
+            for (int i = 0; i < operationCount; i++)
+            {
+                var op = operations[i];
+                if (op.x >= 0 && op.x < width && op.y >= 0 && op.y < height)
+                {
+                    var newPixel = new GridPixel(op.color, op.blockId);
+                    ref var currentPixel = ref pixelGrid[op.x, op.y]; // 使用ref避免拷贝
+            
+                    // 超快速比较
+                    if (currentPixel.color.r != newPixel.color.r ||
+                        currentPixel.color.g != newPixel.color.g ||
+                        currentPixel.color.b != newPixel.color.b ||
+                        currentPixel.color.a != newPixel.color.a ||
+                        currentPixel.blockId != newPixel.blockId)
                     {
-                        blockIdMap[x, y] = 0;
+                        currentPixel = newPixel;
+                        changed = true;
                     }
                 }
             }
-        }
-        
-        private void InitializeTexture()
-        {
-            colorMapTexture = new Texture2D(width, height, TextureFormat.RGBA32, false);
-            colorMapTexture.filterMode = FilterMode.Point;
-            colorMapTexture.wrapMode = TextureWrapMode.Clamp;
-            
-            // 初始化透明纹理
-            Color32[] transparentPixels = new Color32[width * height];
-            for (int i = 0; i < transparentPixels.Length; i++)
-            {
-                transparentPixels[i] = new Color32(0, 0, 0, 0);
-            }
-            colorMapTexture.SetPixels32(transparentPixels);
-            colorMapTexture.Apply();
-        }
-        
-
-        public void SetPixel(int x, int y, Color color, int blockId)
-        {
-            if (colorMapTexture == null) 
-                InitializeTexture();
-        
-            if (x < 0 || x >= width || y < 0 || y >= height)
-                return;
-
-            // 设置颜色
-            colorMapTexture.SetPixel(x, y, color);
     
-            // 设置 Block ID
-            InitializeBlockIdMap();
-            blockIdMap[x, y] = blockId;
-            isDirty = true;
-        }
-        
-        public Color32 GetPixel(int x, int y)
-        {
-            if (colorMapTexture == null) 
-                return new Color32(0, 0, 0, 0);
-                
-            if (x < 0 || x >= width || y < 0 || y >= height)
-                return new Color32(0, 0, 0, 0);
-                
-            return colorMapTexture.GetPixel(x, y);
-        }
-        
-        /// <summary>
-        /// 获取指定位置的 Block ID
-        /// </summary>
-        public int GetBlockId(int x, int y)
-        {
-            if (blockIdMap == null)
+            // 延迟纹理更新 - 关键优化！
+            if (changed) 
             {
-                InitializeBlockIdMap();
+                isTextureDirty = true;
+                // 不立即更新纹理，等待渲染时更新
             }
-    
-            if (x < 0 || x >= width || y < 0 || y >= height)
-                return 0;
-        
-            return blockIdMap[x, y];
         }
-        
-        /// <summary>
-        /// 设置 Block ID（不改变颜色）
-        /// </summary>
-        public void SetBlockId(int x, int y, int blockId)
+
+        // 获取渲染纹理
+        public Texture2D GetRenderTexture()
         {
-            InitializeBlockIdMap();
-        
-            if (x < 0 || x >= width || y < 0 || y >= height)
-                return;
+            if (renderTexture == null || renderTexture.width != width || renderTexture.height != height)
+            {
+                if (renderTexture != null)
+                    Texture2D.DestroyImmediate(renderTexture);
+                    
+                renderTexture = new Texture2D(width, height, TextureFormat.RGBA32, false);
+                renderTexture.filterMode = FilterMode.Point;
+                renderTexture.wrapMode = TextureWrapMode.Clamp;
+                isTextureDirty = true;
+            }
             
-            blockIdMap[x, y] = blockId;
+            if (isTextureDirty)
+            {
+                RegenerateTexture();
+            }
+            
+            return renderTexture;
         }
-        
-        /// <summary>
-        /// 根据颜色查找对应的 Block ID
-        /// </summary>
+
+        // 重新生成纹理
+        private void RegenerateTexture()
+        {
+            if (pixelGrid == null || renderTexture == null) return;
+            
+            Color32[] pixels = new Color32[width * height];
+            
+            for (int y = 0; y < height; y++)
+            {
+                for (int x = 0; x < width; x++)
+                {
+                    int index = y * width + x;
+                    pixels[index] = pixelGrid[x, y].color;
+                }
+            }
+            
+            renderTexture.SetPixels32(pixels);
+            renderTexture.Apply();
+            isTextureDirty = false;
+        }
+
+        // 从纹理导入到网格
+        public void ImportFromTexture(Texture2D sourceTexture)
+        {
+            if (sourceTexture == null) return;
+            
+            InitializeGrid();
+            
+            // 创建临时纹理来确保尺寸匹配
+            Texture2D resizedTexture = sourceTexture;
+            if (sourceTexture.width != width || sourceTexture.height != height)
+            {
+                Debug.Log($"Resizing texture from {sourceTexture.width}x{sourceTexture.height} to {width}x{height}");
+                resizedTexture = ResizeTexture(sourceTexture, width, height);
+            }
+            
+            Color32[] sourcePixels = resizedTexture.GetPixels32();
+            
+            for (int y = 0; y < height; y++)
+            {
+                for (int x = 0; x < width; x++)
+                {
+                    int index = y * width + x;
+                    pixelGrid[x, y] = new GridPixel(sourcePixels[index], 0);
+                }
+            }
+            
+            isTextureDirty = true;
+            
+            // 清理临时纹理
+            if (resizedTexture != sourceTexture)
+            {
+                Texture2D.DestroyImmediate(resizedTexture);
+            }
+        }
+
+        // 纹理缩放
+        private Texture2D ResizeTexture(Texture2D source, int newWidth, int newHeight)
+        {
+            Texture2D result = new Texture2D(newWidth, newHeight, TextureFormat.RGBA32, false);
+            
+            for (int y = 0; y < newHeight; y++)
+            {
+                for (int x = 0; x < newWidth; x++)
+                {
+                    float u = (float)x / newWidth;
+                    float v = (float)y / newHeight;
+                    result.SetPixel(x, y, source.GetPixelBilinear(u, v));
+                }
+            }
+            result.Apply();
+            return result;
+        }
+
+        // 创建网格快照
+        public GridPixel[,] CreateGridSnapshot()
+        {
+            if (pixelGrid == null) InitializeGrid();
+            
+            var snapshot = new GridPixel[width, height];
+            for (int y = 0; y < height; y++)
+            {
+                for (int x = 0; x < width; x++)
+                {
+                    snapshot[x, y] = pixelGrid[x, y];
+                }
+            }
+            return snapshot;
+        }
+
+        // 从快照恢复网格
+        public void RestoreGridFromSnapshot(GridPixel[,] snapshot)
+        {
+            if (snapshot == null || snapshot.GetLength(0) != width || snapshot.GetLength(1) != height)
+            {
+                Debug.LogError("Grid snapshot size mismatch");
+                return;
+            }
+                
+            for (int y = 0; y < height; y++)
+            {
+                for (int x = 0; x < width; x++)
+                {
+                    pixelGrid[x, y] = snapshot[x, y];
+                }
+            }
+            isTextureDirty = true;
+        }
+
+        // 工具方法
         public int FindBlockIdByColor(Color32 color)
         {
             foreach (var block in colorBlocks)
@@ -130,12 +297,9 @@ namespace MapEditor
                     return block.id;
                 }
             }
-            return 0; // 没有找到对应的block
+            return 0;
         }
         
-        /// <summary>
-        /// 根据 Block ID 获取颜色块信息
-        /// </summary>
         public ColorBlock? GetColorBlock(int blockId)
         {
             foreach (var block in colorBlocks)
@@ -147,155 +311,18 @@ namespace MapEditor
             }
             return null;
         }
-    
+        
         private bool ColorsEqual(Color32 a, Color32 b)
         {
             return a.r == b.r && a.g == b.g && a.b == b.b && a.a == b.a;
         }
-        
-        /// <summary>
-        /// 立即应用所有更改到纹理
-        /// </summary>
-        public void ApplyChangesImmediate()
-        {
-            if (colorMapTexture != null && isDirty)
-            {
-                colorMapTexture.Apply();
-                isDirty = false;
-            }
-        }
-        
-        /// <summary>
-        /// 标记为需要更新（用于批量操作）
-        /// </summary>
-        public void MarkDirty()
-        {
-            isDirty = true;
-        }
-        
-        public void ApplyChanges()
-        {
-            ApplyChangesImmediate();
-        }
-        
-        /// <summary>
-        /// 修复颜色比较方法 - 使用容差比较
-        /// </summary>
-        public static bool ColorsEqualWithTolerance(Color32 a, Color32 b, byte tolerance = 1)
-        {
-            return Mathf.Abs(a.r - b.r) <= tolerance &&
-                   Mathf.Abs(a.g - b.g) <= tolerance &&
-                   Mathf.Abs(a.b - b.b) <= tolerance &&
-                   Mathf.Abs(a.a - b.a) <= tolerance;
-        }
 
-        /// <summary>
-        /// 修复颜色比较方法 - 用于撤销重做
-        /// </summary>
-        public static bool ColorsEqualForUndo(Color32 a, Color32 b)
+        // 强制刷新纹理
+        public void ForceTextureRefresh()
         {
-            // 直接比较整数值，避免任何浮点数问题
-            return a.r == b.r && a.g == b.g && a.b == b.b && a.a == b.a;
-        }
-        
-        public static bool ColorsEqualForUndo(Color a, Color b)
-        {
-            // 转换为 Color32 进行比较，避免浮点数精度问题
-            return ColorsEqualForUndo((Color32)a, (Color32)b);
-        }
-        
-        [System.Serializable]
-        public struct PixelOperation
-        {
-            public int x;
-            public int y;
-            public Color color;
-            public int blockId;
-        }
-
-        /// <summary>
-        /// 批量设置像素 - 提高性能并确保一致性
-        /// </summary>
-        public void SetPixelsBatch(List<PixelOperation> operations)
-        {
-            if (colorMapTexture == null) 
-                InitializeTexture();
-        
-            InitializeBlockIdMap();
-
-            bool hasChanges = false;
-    
-            foreach (var op in operations)
+            if (isTextureDirty)
             {
-                if (op.x < 0 || op.x >= width || op.y < 0 || op.y >= height)
-                    continue;
-
-                // 设置颜色
-                colorMapTexture.SetPixel(op.x, op.y, op.color);
-        
-                // 设置 Block ID
-                blockIdMap[op.x, op.y] = op.blockId;
-                hasChanges = true;
-            }
-    
-            if (hasChanges)
-            {
-                isDirty = true;
-                ApplyChangesImmediate(); // 只应用一次
-            }
-        }
-
-        /// <summary>
-        /// 强制重新应用所有纹理更改
-        /// </summary>
-        public void ForceApplyChanges()
-        {
-            if (colorMapTexture != null)
-            {
-                colorMapTexture.Apply();
-                isDirty = false;
-            }
-        }
-        
-        /// <summary>
-        /// 调试方法：检查纹理状态
-        /// </summary>
-        public void DebugTextureState(string context)
-        {
-            if (colorMapTexture == null)
-            {
-                Debug.Log($"[{context}] Texture is null");
-                return;
-            }
-    
-            int nonTransparentPixels = 0;
-            for (int y = 0; y < height; y += height / 10) // 抽样检查
-            {
-                for (int x = 0; x < width; x += width / 10)
-                {
-                    var pixel = GetPixel(x, y);
-                    if (pixel.a > 0) nonTransparentPixels++;
-                }
-            }
-            Debug.Log($"[{context}] Texture: {width}x{height}, Non-transparent pixels: ~{nonTransparentPixels}");
-        }
-
-        /// <summary>
-        /// 验证像素操作
-        /// </summary>
-        public void ValidatePixelOperation(int x, int y, Color32 expectedColor, int expectedBlockId, string operation)
-        {
-            var actualColor = GetPixel(x, y);
-            var actualBlockId = GetBlockId(x, y);
-    
-            bool colorMatch = ColorsEqualForUndo(actualColor, expectedColor);
-            bool blockMatch = actualBlockId == expectedBlockId;
-    
-            if (!colorMatch || !blockMatch)
-            {
-                Debug.LogError($"[Validation Failed] {operation} at ({x},{y}): " +
-                               $"Color: {actualColor} vs {expectedColor} (match: {colorMatch}), " +
-                               $"Block: {actualBlockId} vs {expectedBlockId} (match: {blockMatch})");
+                RegenerateTexture();
             }
         }
     }

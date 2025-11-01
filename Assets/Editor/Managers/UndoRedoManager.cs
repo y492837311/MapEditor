@@ -20,7 +20,7 @@ namespace MapEditor
 
         public void RecordOperation(EditOperation operation)
         {
-            if (operation == null || operation.pixelChanges.Count == 0)
+            if (operation == null)
                 return;
 
             // 清空重做栈
@@ -41,6 +41,8 @@ namespace MapEditor
             }
             
             OnHistoryChanged?.Invoke();
+            
+            Debug.Log($"Operation recorded: {operation.description}. Undo stack: {undoStack.Count}, Redo stack: {redoStack.Count}");
         }
 
         public bool CanUndo()
@@ -61,6 +63,8 @@ namespace MapEditor
             redoStack.Push(operation);
             
             OnHistoryChanged?.Invoke();
+            
+            Debug.Log($"Undo: {operation.description}. Undo stack: {undoStack.Count}, Redo stack: {redoStack.Count}");
             return operation;
         }
 
@@ -72,6 +76,8 @@ namespace MapEditor
             undoStack.Push(operation);
             
             OnHistoryChanged?.Invoke();
+            
+            Debug.Log($"Redo: {operation.description}. Undo stack: {undoStack.Count}, Redo stack: {redoStack.Count}");
             return operation;
         }
 
@@ -103,5 +109,10 @@ namespace MapEditor
 
         public int GetUndoCount() => undoStack.Count;
         public int GetRedoCount() => redoStack.Count;
+        
+        public string GetStatus()
+        {
+            return $"Undo: {GetUndoCount()}, Redo: {GetRedoCount()}";
+        }
     }
 }

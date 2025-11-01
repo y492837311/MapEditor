@@ -8,7 +8,6 @@ namespace MapEditor
         private bool isPanning = false;
         private Vector2 panStartMousePosition;
         private Vector2 panStartOffset;
-        private Vector2 lastMousePosition;
         
         /// <summary>
         /// 开始拖动地图
@@ -68,15 +67,6 @@ namespace MapEditor
     
             panOffset.x = Mathf.Clamp(panOffset.x, -maxOffsetX, maxOffsetX);
             panOffset.y = Mathf.Clamp(panOffset.y, -maxOffsetY, maxOffsetY);
-    
-            // 调试信息
-            if (showDebugInfo)
-            {
-                Debug.Log($"ClampPanOffset: drawArea({drawArea.width:F0}x{drawArea.height:F0}), " +
-                          $"canvas({canvasArea.width:F0}x{canvasArea.height:F0}), " +
-                          $"maxOffset({maxOffsetX:F0}, {maxOffsetY:F0}), " +
-                          $"panOffset({panOffset.x:F0}, {panOffset.y:F0})");
-            }
         }
         
         /// <summary>

@@ -1,5 +1,4 @@
-﻿using System;
-using UnityEngine;
+﻿using UnityEngine;
 
 namespace MapEditor
 {
@@ -17,6 +16,11 @@ namespace MapEditor
             this.color = color;
             this.name = name;
             this.bounds = new RectInt();
+        }
+        
+        public override string ToString()
+        {
+            return $"{name} (ID: {id}, Color: {color})";
         }
     }
 }

@@ -16,14 +16,28 @@ namespace MapEditor
             PickColorAtPosition(position);
         }
 
+        public override void OnMouseDrag(Vector2Int position)
+        {
+            // 取色器通常不需要拖动操作
+        }
+
+        public override void OnMouseUp(Vector2Int position)
+        {
+            // 操作在 MouseDown 中已经完成
+        }
+
+        public override void OnMouseMove(Vector2Int position)
+        {
+            // 可选的鼠标移动处理
+        }
+
         protected override EditOperation.OperationType GetOperationType()
         {
-            return EditOperation.OperationType.Erase;
+            return EditOperation.OperationType.ColorChange;
         }
 
         public override void DrawPreview(Rect canvasArea)
         {
-            // 显示取色器光标
             var mapData = editorWindow.GetCurrentMapData();
             if (mapData == null) return;
 
@@ -32,7 +46,7 @@ namespace MapEditor
 
             if (canvasArea.Contains(mousePos))
             {
-                Vector2 mapPos = editorWindow.ScreenToMapPosition(mousePos, canvasArea);
+                Vector2 mapPos = ScreenToMapPosition(mousePos, canvasArea);
                 Vector2Int intPos = new Vector2Int(Mathf.FloorToInt(mapPos.x), Mathf.FloorToInt(mapPos.y));
                 
                 if (IsPositionValid(intPos))
@@ -45,14 +59,14 @@ namespace MapEditor
         private void PickColorAtPosition(Vector2Int position)
         {
             var mapData = editorWindow.GetCurrentMapData();
-            Color pickedColor = mapData.GetPixel(position.x, position.y);
+            var pixel = mapData.GetGridPixel(position.x, position.y);
             
-            if (pickedColor.a > 0.1f) // 只选取非透明颜色
+            if (pixel.color.a > 0.1f) // 只选取非透明颜色
             {
-                editorWindow.SetCurrentColor(pickedColor);
+                editorWindow.SetCurrentColor(pixel.color);
                 
                 // 可以在这里添加选择对应颜色块的逻辑
-                Debug.Log($"Picked color: {pickedColor} at position ({position.x}, {position.y})");
+                Debug.Log($"Picked color: {pixel.color} at position ({position.x}, {position.y})");
             }
         }
 
@@ -60,7 +74,7 @@ namespace MapEditor
         {
             Handles.BeginGUI();
             
-            Vector2 screenPos = MapToScreenPosition(position, canvasArea);
+            Vector2 screenPos = MapToScreenPosition(new Vector2(position.x + 0.5f, position.y + 0.5f), canvasArea);
             
             // 绘制十字准星
             float size = 10f;
@@ -70,11 +84,11 @@ namespace MapEditor
             
             // 绘制取色区域预览
             var mapData = editorWindow.GetCurrentMapData();
-            Color sampledColor = mapData.GetPixel(position.x, position.y);
+            var pixel = mapData.GetGridPixel(position.x, position.y);
             
             Rect colorRect = new Rect(screenPos.x + 15, screenPos.y - 15, 30, 30);
-            EditorGUI.DrawRect(colorRect, sampledColor);
-            Handles.DrawSolidRectangleWithOutline(colorRect, sampledColor, Color.white);
+            EditorGUI.DrawRect(colorRect, pixel.color);
+            Handles.DrawSolidRectangleWithOutline(colorRect, pixel.color, Color.white);
             
             Handles.EndGUI();
         }

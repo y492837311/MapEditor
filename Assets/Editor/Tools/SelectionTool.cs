@@ -43,6 +43,11 @@ namespace MapEditor
             FinalizeSelection();
         }
 
+        public override void OnMouseMove(Vector2Int position)
+        {
+            // 可选的鼠标移动处理
+        }
+
         protected override EditOperation.OperationType GetOperationType()
         {
             return EditOperation.OperationType.Selection;
@@ -62,7 +67,6 @@ namespace MapEditor
             editorWindow.UpdateSelectionPreview(GetSelectionBounds());
         }
 
-
         private void FinalizeSelection()
         {
             var bounds = GetSelectionBounds();
@@ -70,8 +74,9 @@ namespace MapEditor
     
             editorWindow.SetSelection(selectedPixels, bounds);
     
-            // 使用新的工厂方法
-            var operation = EditOperation.CreateSelectionOperation(selectedPixels, bounds);
+            // 记录选择操作
+            var operation = EditOperation.CreateLightOperation($"Select {selectedPixels.Count} pixels", EditOperation.OperationType.Selection);
+            operation.SetSelectionData(selectedPixels, bounds);
             editorWindow.GetUndoRedoManager().RecordOperation(operation);
         }
 
@@ -96,7 +101,7 @@ namespace MapEditor
             {
                 for (int x = bounds.xMin; x <= bounds.xMax; x++)
                 {
-                    if (editorWindow.IsMapPositionValid(new Vector2Int(x, y)))
+                    if (IsPositionValid(new Vector2Int(x, y)))
                     {
                         pixels.Add(new Vector2Int(x, y));
                     }

@@ -30,18 +30,11 @@ namespace MapEditor
             mapData.height = texture.height;
             mapData.name = Path.GetFileNameWithoutExtension(filePath);
 
-            // 创建颜色映射纹理
-            mapData.colorMapTexture = new Texture2D(texture.width, texture.height, TextureFormat.RGBA32, false);
-            mapData.colorMapTexture.filterMode = FilterMode.Point;
-            mapData.colorMapTexture.wrapMode = TextureWrapMode.Clamp;
-
-            // 复制像素数据
-            Color32[] pixels = texture.GetPixels32();
-            mapData.colorMapTexture.SetPixels32(pixels);
-            mapData.colorMapTexture.Apply();
+            // 导入纹理到网格
+            mapData.ImportFromTexture(texture);
 
             // 分析颜色块
-            AnalyzeColorBlocks(mapData, pixels);
+            AnalyzeColorBlocks(mapData);
 
             Debug.Log($"Successfully imported PNG: {texture.width}x{texture.height}");
 
@@ -51,24 +44,28 @@ namespace MapEditor
             return mapData;
         }
 
-        private static void AnalyzeColorBlocks(MapDataAsset mapData, Color32[] pixels)
+        private static void AnalyzeColorBlocks(MapDataAsset mapData)
         {
             mapData.colorBlocks.Clear();
 
             // 简单的颜色分析：找出所有不透明的独特颜色
             var uniqueColors = new System.Collections.Generic.Dictionary<Color32, int>();
 
-            foreach (Color32 pixel in pixels)
+            for (int y = 0; y < mapData.height; y += 10) // 抽样分析，提高性能
             {
-                if (pixel.a > 0) // 只考虑不透明像素
+                for (int x = 0; x < mapData.width; x += 10)
                 {
-                    if (!uniqueColors.ContainsKey(pixel))
+                    var pixel = mapData.GetGridPixel(x, y);
+                    if (pixel.color.a > 0) // 只考虑不透明像素
                     {
-                        uniqueColors[pixel] = 1;
-                    }
-                    else
-                    {
-                        uniqueColors[pixel]++;
+                        if (!uniqueColors.ContainsKey(pixel.color))
+                        {
+                            uniqueColors[pixel.color] = 1;
+                        }
+                        else
+                        {
+                            uniqueColors[pixel.color]++;
+                        }
                     }
                 }
             }
@@ -77,7 +74,7 @@ namespace MapEditor
             int blockId = 1;
             foreach (var colorEntry in uniqueColors)
             {
-                if (colorEntry.Value > 10) // 忽略太小的颜色区域
+                if (colorEntry.Value > 1) // 忽略太小的颜色区域
                 {
                     string blockName = $"Block_{blockId}";
                     mapData.colorBlocks.Add(new ColorBlock(blockId, colorEntry.Key, blockName));

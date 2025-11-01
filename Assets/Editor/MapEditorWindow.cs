@@ -38,13 +38,15 @@ namespace MapEditor
         private bool showLayersPanel = true;
         private bool showPropertiesPanel = true;
         private bool showColorPickerPanel = true;
-        private bool showDebugInfo = true;
+        public bool showDebugInfo = true;
+        private ErrorDetectionManager errorDetectionManager;
         private UndoRedoManager undoRedoManager;
+
         private List<Vector2Int> selectedPixels = new List<Vector2Int>();
         private RectInt selectionBounds = new RectInt();
         private bool hasSelection = false;
         private SelectionTool selectionTool;
-        
+
         [MenuItem("Tools/Map Editor")]
         public static void ShowWindow()
         {
@@ -52,12 +54,13 @@ namespace MapEditor
             window.minSize = new Vector2(1200, 800);
             window.Show();
         }
-        
+
         private void InitializeManagers()
         {
             undoRedoManager = new UndoRedoManager();
+            errorDetectionManager = new ErrorDetectionManager(this);
         }
-        
+
         private void OnEnable()
         {
             InitializeTools();
@@ -80,10 +83,8 @@ namespace MapEditor
             tools[ToolType.Eraser] = new EraserEditorTool(this);
             tools[ToolType.Eyedropper] = new EyedropperEditorTool(this);
             tools[ToolType.Selection] = new SelectionTool(this);
-            
-            currentTool = tools[ToolType.Pencil];
-            selectionTool = tools[ToolType.Selection] as SelectionTool;
 
+            currentTool = tools[ToolType.Pencil];
         }
 
         private void InitializeUI()
@@ -136,61 +137,80 @@ namespace MapEditor
             }
         }
 
-        private void DrawMenuBar()
+       private void DrawMenuBar()
+{
+    EditorGUILayout.BeginHorizontal(EditorStyles.toolbar);
+    {
+        if (GUILayout.Button("File", EditorStyles.toolbarDropDown))
         {
-            EditorGUILayout.BeginHorizontal(EditorStyles.toolbar);
-            {
-                if (GUILayout.Button("File", EditorStyles.toolbarDropDown))
-                {
-                    GenericMenu menu = new GenericMenu();
-                    menu.AddItem(new GUIContent("New Map"), false, OnNewMap);
-                    menu.AddItem(new GUIContent("Open Map"), false, OnOpenMap);
-                    menu.AddItem(new GUIContent("Save Map"), false, OnSaveMap);
-                    menu.AddItem(new GUIContent("Save As..."), false, OnSaveAs);
-                    menu.AddSeparator("");
-                    menu.AddItem(new GUIContent("Import PNG"), false, OnImportPNG);
-                    menu.AddItem(new GUIContent("Export PNG"), false, OnExportPNG);
-                    menu.ShowAsContext();
-                }
-
-                if (GUILayout.Button("Edit", EditorStyles.toolbarDropDown))
-                {
-                    GenericMenu menu = new GenericMenu();
-                    menu.AddItem(new GUIContent("Undo (Ctrl+Z)"), false, OnUndo);
-                    menu.AddItem(new GUIContent("Redo (Ctrl+Y)"), false, OnRedo);
-                    menu.AddSeparator("");
-                    menu.AddItem(new GUIContent("Select All"), false, OnSelectAll);
-                    menu.AddItem(new GUIContent("Clear Selection"), false, OnClearSelection);
-                    menu.ShowAsContext();
-                }
-
-                if (GUILayout.Button("View", EditorStyles.toolbarDropDown))
-                {
-                    GenericMenu menu = new GenericMenu();
-                    menu.AddItem(new GUIContent("Show Grid"), showGrid, () => showGrid = !showGrid);
-                    menu.AddItem(new GUIContent("Show Background"), true, () => { });
-                    menu.AddItem(new GUIContent("Show Block Labels"), true, () => { });
-                    menu.AddSeparator("");
-                    menu.AddItem(new GUIContent("Zoom In"), false, () => zoomLevel = Mathf.Min(zoomLevel * 1.5f, 10f));
-                    menu.AddItem(new GUIContent("Zoom Out"), false,
-                        () => zoomLevel = Mathf.Max(zoomLevel / 1.5f, 0.1f));
-                    menu.AddItem(new GUIContent("Reset Zoom"), false, () => zoomLevel = 1.0f);
-                    menu.ShowAsContext();
-                }
-
-                GUILayout.FlexibleSpace();
-
-                if (currentMapData != null)
-                {
-                    EditorGUILayout.LabelField($"Current: {currentMapData.name}", EditorStyles.miniLabel);
-                }
-                else
-                {
-                    EditorGUILayout.LabelField("No map loaded", EditorStyles.miniLabel);
-                }
-            }
-            EditorGUILayout.EndHorizontal();
+            GenericMenu menu = new GenericMenu();
+            menu.AddItem(new GUIContent("New Map"), false, OnNewMap);
+            menu.AddItem(new GUIContent("Open Map"), false, OnOpenMap);
+            menu.AddItem(new GUIContent("Save Map"), false, OnSaveMap);
+            menu.AddItem(new GUIContent("Save As..."), false, OnSaveAs);
+            menu.AddSeparator("");
+            menu.AddItem(new GUIContent("Import PNG"), false, OnImportPNG);
+            menu.AddItem(new GUIContent("Export PNG"), false, OnExportPNG);
+            menu.AddItem(new GUIContent("Export Config"), false, OnExportConfig);
+            menu.ShowAsContext();
         }
+        
+        if (GUILayout.Button("Edit", EditorStyles.toolbarDropDown))
+        {
+            GenericMenu menu = new GenericMenu();
+            menu.AddItem(new GUIContent("Undo (Ctrl+Z)"), false, OnUndo);
+            menu.AddItem(new GUIContent("Redo (Ctrl+Y)"), false, OnRedo);
+            menu.AddSeparator("");
+            menu.AddItem(new GUIContent("Select All (Ctrl+A)"), false, OnSelectAll);
+            menu.AddItem(new GUIContent("Clear Selection (Ctrl+D)"), false, OnClearSelection);
+    
+            // 修复这里：传递一个空的 Vector2Int，因为方法不需要位置参数
+            menu.AddItem(new GUIContent("Delete Selection (Delete)"), false, () => DeleteSelectionOptimized());
+    
+            menu.ShowAsContext();
+        }
+
+        if (GUILayout.Button("View", EditorStyles.toolbarDropDown))
+        {
+            GenericMenu menu = new GenericMenu();
+            menu.AddItem(new GUIContent("Show Grid"), showGrid, () => showGrid = !showGrid);
+            menu.AddItem(new GUIContent("Show Background"), showBackground, () => showBackground = !showBackground);
+            menu.AddItem(new GUIContent("Show Block Labels"), showBlockLabels, () => showBlockLabels = !showBlockLabels);
+            menu.AddItem(new GUIContent("Show Error Overlay"), showErrorOverlay, () => showErrorOverlay = !showErrorOverlay);
+            menu.AddSeparator("");
+            menu.AddItem(new GUIContent("Zoom In (Ctrl+Plus)"), false, () => SetZoomLevel(zoomLevel * 1.2f, Event.current.mousePosition));
+            menu.AddItem(new GUIContent("Zoom Out (Ctrl+Minus)"), false, () => SetZoomLevel(zoomLevel / 1.2f, Event.current.mousePosition));
+            menu.AddItem(new GUIContent("Reset Zoom"), false, () => SetZoomLevel(1.0f));
+            menu.AddItem(new GUIContent("Zoom to Fit (Ctrl+0)"), false, ZoomToFit);
+            menu.AddItem(new GUIContent("Actual Size (Ctrl+1)"), false, ZoomToActualSize);
+            menu.ShowAsContext();
+        }
+
+        if (GUILayout.Button("Tools", EditorStyles.toolbarDropDown))
+        {
+            GenericMenu menu = new GenericMenu();
+            menu.AddItem(new GUIContent("Pencil Tool (B)"), currentTool?.GetToolType() == ToolType.Pencil, () => SetCurrentTool(ToolType.Pencil));
+            menu.AddItem(new GUIContent("Bucket Tool (G)"), currentTool?.GetToolType() == ToolType.Bucket, () => SetCurrentTool(ToolType.Bucket));
+            menu.AddItem(new GUIContent("Eraser Tool (E)"), currentTool?.GetToolType() == ToolType.Eraser, () => SetCurrentTool(ToolType.Eraser));
+            menu.AddItem(new GUIContent("Eyedropper Tool (I)"), currentTool?.GetToolType() == ToolType.Eyedropper, () => SetCurrentTool(ToolType.Eyedropper));
+            menu.AddItem(new GUIContent("Selection Tool (S)"), currentTool?.GetToolType() == ToolType.Selection, () => SetCurrentTool(ToolType.Selection));
+            menu.ShowAsContext();
+        }
+
+        GUILayout.FlexibleSpace();
+
+        if (currentMapData != null)
+        {
+            EditorGUILayout.LabelField($"Current: {currentMapData.name}", EditorStyles.miniLabel);
+            EditorGUILayout.LabelField($"Size: {currentMapData.width}x{currentMapData.height}", EditorStyles.miniLabel, GUILayout.Width(100));
+        }
+        else
+        {
+            EditorGUILayout.LabelField("No map loaded", EditorStyles.miniLabel);
+        }
+    }
+    EditorGUILayout.EndHorizontal();
+}
 
         private void DrawToolbar()
         {
@@ -259,7 +279,8 @@ namespace MapEditor
                 EditorGUILayout.EndHorizontal();
                 Repaint();
 
-                var canvasArea = GUILayoutUtility.GetRect(0, 0, GUILayout.ExpandWidth(true), GUILayout.ExpandHeight(true));
+                var canvasArea =
+                    GUILayoutUtility.GetRect(0, 0, GUILayout.ExpandWidth(true), GUILayout.ExpandHeight(true));
                 if (currentMapData != null)
                 {
                     DrawCanvas(canvasArea);
@@ -276,84 +297,352 @@ namespace MapEditor
         {
             // 绘制背景
             EditorGUI.DrawRect(canvasArea, new Color(0.15f, 0.15f, 0.15f));
-            Rect drawArea = CalculateDrawArea(canvasArea);
-            DrawBoundsAndDebugInfo(drawArea, canvasArea);
-            DrawSelection(drawArea);
-            // 计算绘制区域
-            Matrix4x4 originalMatrix = GUI.matrix;
-            GUI.BeginGroup(canvasArea);
+    
+            if (currentMapData != null)
             {
-                drawArea = CalculateDrawArea(canvasArea);
-                drawArea = new Rect(
-                    drawArea.x - canvasArea.x, // 减去canvas的x偏移
-                    drawArea.y - canvasArea.y, // 减去canvas的y偏移
-                    drawArea.width,
-                    drawArea.height
-                );
-                if (currentMapData != null)
+                // 计算绘制区域（包含缩放和平移）
+                Rect drawArea = CalculateDrawArea(canvasArea);
+        
+                // 开始裁剪区域
+                GUI.BeginGroup(canvasArea);
                 {
-                    var texture = currentMapData.GetColorMapTexture();
-                    if (texture != null)
+                    // 计算每个网格在绘制区域中的大小（考虑缩放）
+                    float gridWidth = drawArea.width / currentMapData.width;
+                    float gridHeight = drawArea.height / currentMapData.height;
+            
+                    // 调整到绘制区域的坐标系
+                    Rect adjustedDrawArea = new Rect(
+                        drawArea.x - canvasArea.x,
+                        drawArea.y - canvasArea.y,
+                        drawArea.width,
+                        drawArea.height
+                    );
+            
+                    // 第一步：绘制背景
+                    if (showBackground && backgroundTexture != null)
                     {
-                        GUI.DrawTexture(drawArea, texture, ScaleMode.StretchToFill);
+                        GUI.DrawTexture(adjustedDrawArea, backgroundTexture, ScaleMode.StretchToFill);
                     }
-                }
 
-                // 绘制地图背景（在绘制区域内）
-                if (showBackground && backgroundTexture != null)
-                {
-                    GUI.DrawTexture(drawArea, backgroundTexture, ScaleMode.StretchToFill);
-                }
+                    // 第二步：绘制地图像素
+                    var renderTexture = currentMapData.GetRenderTexture();
+                    if (renderTexture != null)
+                    {
+                        GUI.DrawTexture(adjustedDrawArea, renderTexture, ScaleMode.StretchToFill);
+                    }
 
-                // 绘制地图内容（在绘制区域内）
-                if (currentMapData != null && currentMapData.GetColorMapTexture() != null)
-                {
-                    GUI.DrawTexture(drawArea, currentMapData.GetColorMapTexture(), ScaleMode.StretchToFill);
-                }
+                    // 第三步：绘制网格 - 在像素之上
+                    if (showGrid)
+                    {
+                        DrawPixelGridAligned(adjustedDrawArea, gridWidth, gridHeight);
+                    }
 
-                // 绘制网格
-                if (showGrid && zoomLevel > 0.5f)
-                {
-                    DrawGrid(drawArea);
+                    // 第四步：绘制其他覆盖层
+                    DrawOverlays(adjustedDrawArea, gridWidth, gridHeight);
                 }
-
-                // 绘制块标签
-                if (showBlockLabels && zoomLevel > 1f)
-                {
-                    DrawBlockLabels(drawArea);
-                }
-
-                // 绘制错误覆盖层
-                if (showErrorOverlay)
-                {
-                    DrawErrorOverlay(drawArea);
-                }
-
-                // 绘制工具预览
-                currentTool?.DrawPreview(drawArea);
+                GUI.EndGroup();
 
                 // 处理画布事件
                 HandleCanvasEvents(drawArea);
-
-                // 绘制调试信息
-                DrawDebugInfo(drawArea, canvasArea);
             }
-            GUI.EndGroup();
+            else
+            {
+                DrawEmptyCanvas(canvasArea);
+            }
+        }
 
-            GUI.matrix = originalMatrix;
+        /// <summary>
+        /// 网格对齐的地图像素绘制
+        /// </summary>
+        private void DrawMapPixelsGridAligned(Rect canvasArea, float gridWidth, float gridHeight)
+        {
+            var renderTexture = currentMapData.GetRenderTexture();
+            if (renderTexture == null) return;
+
+            // 直接绘制整个纹理
+            GUI.DrawTexture(new Rect(0, 0, canvasArea.width, canvasArea.height), 
+                           renderTexture, ScaleMode.StretchToFill);
+        }
+
+        /// <summary>
+        /// 网格对齐的网格绘制 - 修复Y轴版本
+        /// </summary>
+        private void DrawPixelGridAligned(Rect drawArea, float gridWidth, float gridHeight)
+        {
+            // 根据缩放级别调整网格显示阈值
+            bool shouldShowGrid = gridWidth > 2f && gridHeight > 2f && zoomLevel > 0.5f;
+    
+            if (!shouldShowGrid) return;
+    
+            Handles.BeginGUI();
+    
+            float gridAlpha = Mathf.Clamp(zoomLevel * 0.1f, 0.05f, 0.3f);
+            Handles.color = new Color(1, 1, 1, gridAlpha);
+
+            try
+            {
+                // 计算可见的网格范围
+                int startX = Mathf.Max(0, Mathf.FloorToInt(-panOffset.x / gridWidth));
+                int endX = Mathf.Min(currentMapData.width, Mathf.CeilToInt((drawArea.width - panOffset.x) / gridWidth));
+        
+                int startY = Mathf.Max(0, Mathf.FloorToInt(-panOffset.y / gridHeight));
+                int endY = Mathf.Min(currentMapData.height, Mathf.CeilToInt((drawArea.height - panOffset.y) / gridHeight));
+
+                // 绘制垂直线
+                for (int x = startX; x <= endX; x++)
+                {
+                    float screenX = drawArea.x + (x * gridWidth) + panOffset.x;
+                    Handles.DrawLine(
+                        new Vector3(screenX, drawArea.y),
+                        new Vector3(screenX, drawArea.y + drawArea.height)
+                    );
+                }
+
+                // 绘制水平线 - Y轴方向与屏幕一致
+                for (int y = startY; y <= endY; y++)
+                {
+                    float screenY = drawArea.y + (y * gridHeight) + panOffset.y;
+                    Handles.DrawLine(
+                        new Vector3(drawArea.x, screenY),
+                        new Vector3(drawArea.x + drawArea.width, screenY)
+                    );
+                }
+            }
+            catch (System.Exception e)
+            {
+                Debug.LogError($"Grid drawing error: {e.Message}");
+            }
+    
+            Handles.EndGUI();
+        }
+        
+        /// <summary>
+        /// 绘制覆盖层（选择、预览等）- 考虑缩放
+        /// </summary>
+        private void DrawOverlays(Rect drawArea, float gridWidth, float gridHeight)
+        {
+            // 绘制块标签
+            if (showBlockLabels && zoomLevel > 2f)
+            {
+                DrawBlockLabelsAligned(drawArea, gridWidth, gridHeight);
+            }
+
+            // 绘制选择区域
+            if (hasSelection)
+            {
+                DrawSelectionAligned(drawArea, gridWidth, gridHeight);
+            }
+
+            // 设置绘制区域给工具，然后绘制预览
+            currentTool?.SetDrawArea(drawArea);
+            currentTool?.DrawPreviewAligned(drawArea, gridWidth, gridHeight);
+            currentTool?.ClearDrawArea();
+        }
+
+        /// <summary>
+        /// 网格对齐的块标签绘制
+        /// </summary>
+        private void DrawBlockLabelsAligned(Rect canvasArea, float gridWidth, float gridHeight)
+        {
+            if (currentMapData == null || currentMapData.colorBlocks.Count == 0) return;
+
+            Handles.BeginGUI();
+
+            GUIStyle labelStyle = new GUIStyle(EditorStyles.whiteLabel);
+            labelStyle.alignment = TextAnchor.MiddleCenter;
+            labelStyle.fontSize = Mathf.Max(8, (int)(10 * zoomLevel));
+            labelStyle.normal.textColor = Color.white;
+
+            foreach (var block in currentMapData.colorBlocks)
+            {
+                Vector2Int? centerPos = FindBlockCenter(block, currentMapData);
+                if (centerPos.HasValue)
+                {
+                    Vector2 screenPos = new Vector2(
+                        centerPos.Value.x * gridWidth + gridWidth * 0.5f,
+                        centerPos.Value.y * gridHeight + gridHeight * 0.5f
+                    );
+
+                    GUIContent labelContent = new GUIContent($"{block.name} (ID:{block.id})");
+                    Vector2 labelSize = labelStyle.CalcSize(labelContent);
+
+                    Rect labelRect = new Rect(
+                        screenPos.x - labelSize.x / 2,
+                        screenPos.y - labelSize.y / 2,
+                        labelSize.x,
+                        labelSize.y
+                    );
+
+                    // 绘制半透明背景
+                    EditorGUI.DrawRect(new Rect(
+                        labelRect.x - 2, labelRect.y - 1,
+                        labelRect.width + 4, labelRect.height + 2
+                    ), new Color(0, 0, 0, 0.7f));
+
+                    // 绘制标签文本
+                    GUI.Label(labelRect, labelContent, labelStyle);
+                }
+            }
+
+            Handles.EndGUI();
+        }
+
+        /// <summary>
+        /// 网格对齐的选择区域绘制（考虑缩放）
+        /// </summary>
+        private void DrawSelectionAligned(Rect drawArea, float gridWidth, float gridHeight)
+        {
+            if (!hasSelection) return;
+
+            Handles.BeginGUI();
+
+            // 计算选择区域的屏幕边界（考虑平移）
+            float startX = drawArea.x + (selectionBounds.xMin * gridWidth) + panOffset.x;
+            float startY = drawArea.y + (selectionBounds.yMin * gridHeight) + panOffset.y;
+            float width = selectionBounds.width * gridWidth;
+            float height = selectionBounds.height * gridHeight;
+
+            Rect selectionRect = new Rect(startX, startY, width, height);
+    
+            // 绘制半透明选择区域
+            Handles.DrawSolidRectangleWithOutline(selectionRect, new Color(0, 0.5f, 1f, 0.3f), Color.clear);
+    
+            // 绘制选择边框
+            Handles.color = new Color(0, 0.5f, 1f, 0.8f);
+            Handles.DrawWireCube(selectionRect.center, new Vector3(selectionRect.width, selectionRect.height, 0));
+
+            Handles.EndGUI();
+        }
+
+        /// <summary>
+        /// 查找颜色块的中心位置
+        /// </summary>
+        private Vector2Int? FindBlockCenter(ColorBlock block, MapDataAsset mapData)
+        {
+            int minX = int.MaxValue, minY = int.MaxValue;
+            int maxX = int.MinValue, maxY = int.MinValue;
+            int pixelCount = 0;
+
+            // 抽样查找颜色块的边界
+            for (int y = 0; y < mapData.height; y += 10)
+            {
+                for (int x = 0; x < mapData.width; x += 10)
+                {
+                    var pixel = mapData.GetGridPixel(x, y);
+                    if (ColorsEqual(pixel.color, block.color))
+                    {
+                        minX = Mathf.Min(minX, x);
+                        minY = Mathf.Min(minY, y);
+                        maxX = Mathf.Max(maxX, x);
+                        maxY = Mathf.Max(maxY, y);
+                        pixelCount++;
+                    }
+                }
+            }
+
+            if (pixelCount > 0)
+            {
+                return new Vector2Int((minX + maxX) / 2, (minY + maxY) / 2);
+            }
+
+            return null;
+        }
+
+        /// <summary>
+        /// 颜色比较方法
+        /// </summary>
+        private bool ColorsEqual(Color32 a, Color32 b)
+        {
+            return a.r == b.r && a.g == b.g && a.b == b.b && a.a == b.a;
+        }
+        
+        /// <summary>
+        /// 应用平移偏移到绘制区域
+        /// </summary>
+        private Rect ApplyPanOffset(Rect drawArea)
+        {
+            return new Rect(
+                drawArea.x + panOffset.x,
+                drawArea.y + panOffset.y,
+                drawArea.width,
+                drawArea.height
+            );
+        }
+
+        /// <summary>
+        /// 绘制像素网格 - 修复平移版本
+        /// </summary>
+        private void DrawPixelGrid(Rect drawArea)
+        {
+            if (currentMapData == null) return;
+    
+            Handles.BeginGUI();
+    
+            // 根据缩放级别调整网格透明度
+            float gridAlpha = Mathf.Clamp(zoomLevel * 0.1f, 0.05f, 0.3f);
+            Handles.color = new Color(1, 1, 1, gridAlpha);
+
+            // 计算每个像素在屏幕上的大小
+            float pixelWidth = (drawArea.width / currentMapData.width);
+            float pixelHeight = (drawArea.height / currentMapData.height);
+    
+            // 只在像素足够大时显示网格
+            bool shouldShowGrid = pixelWidth > 2f && pixelHeight > 2f && zoomLevel > 0.5f;
+    
+            if (shouldShowGrid)
+            {
+                try
+                {
+                    // 计算可见的网格范围（考虑平移）
+                    int startX = 0;
+                    int endX = currentMapData.width;
+                    int startY = 0;
+                    int endY = currentMapData.height;
+
+                    // 绘制垂直线
+                    for (int x = startX; x <= endX; x++)
+                    {
+                        float screenX = drawArea.x + (x * pixelWidth);
+                        Handles.DrawLine(
+                            new Vector3(screenX, drawArea.y),
+                            new Vector3(screenX, drawArea.y + drawArea.height)
+                        );
+                    }
+
+                    // 绘制水平线
+                    for (int y = startY; y <= endY; y++)
+                    {
+                        float screenY = drawArea.y + (y * pixelHeight);
+                        Handles.DrawLine(
+                            new Vector3(drawArea.x, screenY),
+                            new Vector3(drawArea.x + drawArea.width, screenY)
+                        );
+                    }
+                }
+                catch (System.Exception e)
+                {
+                    Debug.LogError($"Grid drawing error: {e.Message}");
+                }
+            }
+    
+            Handles.EndGUI();
         }
 
         private double lastRepaintTime;
-        private const double minRepaintInterval = 0.016; // ~60 FPS
-
-        private void RequestRepaint()
+        private const double REPAINT_INTERVAL = 0.016; // ~60 FPS
+        public void RequestDelayedRepaint()
         {
             double currentTime = EditorApplication.timeSinceStartup;
-            if (currentTime - lastRepaintTime >= minRepaintInterval)
+            if (currentTime - lastRepaintTime >= REPAINT_INTERVAL)
             {
                 Repaint();
                 lastRepaintTime = currentTime;
             }
+        }
+
+        public void RequestRepaint()
+        {
+            RequestDelayedRepaint();
         }
 
         /// <summary>
@@ -376,34 +665,40 @@ namespace MapEditor
         }
 
         /// <summary>
-        /// 绘制调试信息
+        /// 绘制调试信息 - 修复Y轴显示
         /// </summary>
         private void DrawDebugInfo(Rect drawArea, Rect canvasArea)
         {
             Handles.BeginGUI();
 
             Vector2 mousePos = Event.current.mousePosition;
-            Vector2 mapPos = ScreenToMapPosition(mousePos, drawArea);
-            Vector2Int intMapPos = new Vector2Int(Mathf.FloorToInt(mapPos.x), Mathf.FloorToInt(mapPos.y));
 
-            string debugInfo = $"Canvas: {canvasArea.width:F0}x{canvasArea.height:F0}\n" +
-                               $"DrawArea: {drawArea.width:F0}x{drawArea.height:F0}\n" +
-                               $"Mouse: ({mousePos.x:F0}, {mousePos.y:F0})\n" +
+            // 使用修复后的坐标转换
+            Vector2 mapPos = ScreenToMapPosition(mousePos, drawArea);
+            Vector2Int intMapPos = ScreenToMapPositionInt(mousePos, drawArea);
+
+            // 计算正确的屏幕位置
+            Vector2 correctScreenPos = MapToScreenPosition(intMapPos, drawArea);
+
+            string debugInfo = $"Mouse: ({mousePos.x:F0}, {mousePos.y:F0})\n" +
                                $"Map: ({intMapPos.x}, {intMapPos.y})\n" +
-                               $"Valid: {IsMapPositionValid(intMapPos)}";
+                               $"Correct Screen: ({correctScreenPos.x:F0}, {correctScreenPos.y:F0})\n" +
+                               $"Zoom: {zoomLevel:F2}x\n" +
+                               $"Pan: ({panOffset.x:F0}, {panOffset.y:F0})\n" +
+                               $"DrawArea: {drawArea}";
 
             GUIStyle debugStyle = new GUIStyle(EditorStyles.whiteLabel);
             debugStyle.normal.textColor = Color.yellow;
             debugStyle.fontSize = 10;
 
-            Rect debugRect = new Rect(canvasArea.x + 10, canvasArea.y + 10, 180, 90);
+            Rect debugRect = new Rect(canvasArea.x + 10, canvasArea.y + 10, 250, 120);
             EditorGUI.DrawRect(debugRect, new Color(0, 0, 0, 0.8f));
             GUI.Label(debugRect, debugInfo, debugStyle);
 
-            // 绘制鼠标位置标记
+            // 修复十字星绘制
             if (drawArea.Contains(mousePos))
             {
-                // 十字准星
+                // 红色十字星在鼠标位置
                 Handles.color = Color.red;
                 float crossSize = 15f;
                 Handles.DrawLine(
@@ -415,19 +710,26 @@ namespace MapEditor
                     new Vector3(mousePos.x, mousePos.y + crossSize)
                 );
 
-                // 对应的地图位置标记
-                Vector2 mapScreenPos = MapToScreenPosition(intMapPos, drawArea);
+                // 蓝色圆点在计算出的网格位置
                 Handles.color = Color.blue;
-                Handles.DrawWireDisc(mapScreenPos, Vector3.forward, 5f);
+                Handles.DrawSolidDisc(correctScreenPos, Vector3.forward, 5f);
 
-                // 连接线
-                Handles.color = Color.cyan;
-                Handles.DrawDottedLine(mousePos, mapScreenPos, 2f);
+                // 如果位置不一致，显示连接线
+                if (Vector2.Distance(mousePos, correctScreenPos) > 1f)
+                {
+                    Handles.color = Color.cyan;
+                    Handles.DrawDottedLine(mousePos, correctScreenPos, 2f);
+                }
+                else
+                {
+                    // 位置一致，显示绿色对勾
+                    Handles.color = Color.green;
+                    Handles.DrawSolidDisc(mousePos, Vector3.forward, 3f);
+                }
             }
 
             Handles.EndGUI();
         }
-        // 在 MapEditorWindow 类中添加：
 
         /// <summary>
         /// 绘制块标签
@@ -441,48 +743,42 @@ namespace MapEditor
             // 使用默认的标签样式
             GUIStyle labelStyle = new GUIStyle(EditorStyles.whiteLabel);
             labelStyle.alignment = TextAnchor.MiddleCenter;
-            labelStyle.fontSize = 10;
+            labelStyle.fontSize = Mathf.Max(8, (int)(10 * zoomLevel));
             labelStyle.normal.textColor = Color.white;
 
-            // 临时：在固定位置显示测试标签
-            // 在实际应用中，您需要根据颜色块的实际位置来计算标签位置
-            Vector2Int[] testPositions = new Vector2Int[]
+            // 为每个颜色块在中心位置显示标签
+            foreach (var block in currentMapData.colorBlocks)
             {
-                new Vector2Int(100, 100),
-                new Vector2Int(currentMapData.width - 100, 100),
-                new Vector2Int(100, currentMapData.height - 100),
-                new Vector2Int(currentMapData.width - 100, currentMapData.height - 100)
-            };
+                // 找到该颜色块的大致中心位置
+                Vector2Int? centerPos = FindBlockCenter(block, currentMapData);
+                if (centerPos.HasValue)
+                {
+                    Vector2 screenPos =
+                        MapToScreenPosition(new Vector2(centerPos.Value.x + 0.5f, centerPos.Value.y + 0.5f), drawArea);
 
-            for (int i = 0; i < Mathf.Min(currentMapData.colorBlocks.Count, testPositions.Length); i++)
-            {
-                var block = currentMapData.colorBlocks[i];
-                Vector2Int mapPos = testPositions[i];
+                    GUIContent labelContent = new GUIContent($"{block.name} (ID:{block.id})");
+                    Vector2 labelSize = labelStyle.CalcSize(labelContent);
 
-                Vector2 screenPos = MapToScreenPosition(mapPos, drawArea);
+                    Rect labelRect = new Rect(
+                        screenPos.x - labelSize.x / 2,
+                        screenPos.y - labelSize.y / 2,
+                        labelSize.x,
+                        labelSize.y
+                    );
 
-                GUIContent labelContent = new GUIContent($"{block.name} (ID:{block.id})");
-                Vector2 labelSize = labelStyle.CalcSize(labelContent);
+                    // 绘制半透明背景
+                    EditorGUI.DrawRect(new Rect(
+                        labelRect.x - 2, labelRect.y - 1,
+                        labelRect.width + 4, labelRect.height + 2
+                    ), new Color(0, 0, 0, 0.7f));
 
-                Rect labelRect = new Rect(
-                    screenPos.x - labelSize.x / 2,
-                    screenPos.y - labelSize.y / 2,
-                    labelSize.x,
-                    labelSize.y
-                );
+                    // 绘制标签文本
+                    GUI.Label(labelRect, labelContent, labelStyle);
 
-                // 绘制半透明背景
-                EditorGUI.DrawRect(new Rect(
-                    labelRect.x - 2, labelRect.y - 1,
-                    labelRect.width + 4, labelRect.height + 2
-                ), new Color(0, 0, 0, 0.7f));
-
-                // 绘制标签文本
-                GUI.Label(labelRect, labelContent, labelStyle);
-
-                // 在标签位置绘制一个小点标记
-                Handles.color = block.color;
-                Handles.DrawSolidDisc(screenPos, Vector3.forward, 3f);
+                    // 在标签位置绘制一个小点标记
+                    Handles.color = block.color;
+                    Handles.DrawSolidDisc(screenPos, Vector3.forward, 3f);
+                }
             }
 
             Handles.EndGUI();
@@ -498,58 +794,57 @@ namespace MapEditor
         {
             return MapToScreenPosition(new Vector2(mapPos.x, mapPos.y), canvasArea);
         }
-
-
+        
         /// <summary>
-        /// 将屏幕坐标转换为地图坐标（精确版本）
+        /// 将屏幕坐标转换为地图坐标 - 修复Y轴版本
         /// </summary>
         public Vector2 ScreenToMapPosition(Vector2 screenPos, Rect drawArea)
         {
             if (currentMapData == null || drawArea.width <= 0 || drawArea.height <= 0)
                 return Vector2.zero;
 
-            // 计算在绘制区域内的相对位置 (0-1)
-            float relativeX = (screenPos.x - drawArea.x) / drawArea.width;
-            float relativeY = (screenPos.y - drawArea.y) / drawArea.height;
+            // 计算相对于绘制区域的坐标（考虑平移）
+            float relativeX = (screenPos.x - drawArea.x - panOffset.x) / drawArea.width;
+            float relativeY = (screenPos.y - drawArea.y - panOffset.y) / drawArea.height;
 
-            // 转换为地图坐标（注意Y轴翻转）
-            float mapX = relativeX * currentMapData.width;
-            float mapY = (1f - relativeY) * currentMapData.height;
+            // 关键修复：Y轴方向保持一致（都不翻转）
+            float mapX = Mathf.Clamp(relativeX * currentMapData.width, 0, currentMapData.width - 1);
+            float mapY = Mathf.Clamp(relativeY * currentMapData.height, 0, currentMapData.height - 1);
 
             return new Vector2(mapX, mapY);
         }
 
         /// <summary>
-        /// 将地图坐标转换为屏幕坐标（精确版本）
+        /// 将屏幕坐标转换为地图坐标（整数版本）- 修复Y轴
+        /// </summary>
+        public Vector2Int ScreenToMapPositionInt(Vector2 screenPos, Rect drawArea)
+        {
+            Vector2 mapPos = ScreenToMapPosition(screenPos, drawArea);
+            return new Vector2Int(
+                Mathf.Clamp(Mathf.FloorToInt(mapPos.x), 0, currentMapData.width - 1),
+                Mathf.Clamp(Mathf.FloorToInt(mapPos.y), 0, currentMapData.height - 1)
+            );
+        }
+        
+        /// <summary>
+        /// 将地图坐标转换为屏幕坐标 - 修复Y轴版本
         /// </summary>
         public Vector2 MapToScreenPosition(Vector2 mapPos, Rect drawArea)
         {
             if (currentMapData == null || drawArea.width <= 0 || drawArea.height <= 0)
                 return Vector2.zero;
 
-            // 计算相对位置 (0-1)
-            float relativeX = mapPos.x / currentMapData.width;
-            float relativeY = 1f - (mapPos.y / currentMapData.height); // Y轴翻转
+            // 计算相对位置 (0-1) - Y轴方向保持一致
+            float relativeX = Mathf.Clamp(mapPos.x / currentMapData.width, 0f, 1f);
+            float relativeY = Mathf.Clamp(mapPos.y / currentMapData.height, 0f, 1f); // 关键：移除Y轴翻转
 
-            // 转换为屏幕坐标
-            float screenX = drawArea.x + relativeX * drawArea.width;
-            float screenY = drawArea.y + relativeY * drawArea.height;
+            // 转换为屏幕坐标，应用平移
+            float screenX = drawArea.x + relativeX * drawArea.width + panOffset.x;
+            float screenY = drawArea.y + relativeY * drawArea.height + panOffset.y;
 
             return new Vector2(screenX, screenY);
         }
-
-        /// <summary>
-        /// 将屏幕坐标转换为地图坐标（整数版本）
-        /// </summary>
-        /// <param name="screenPos">屏幕坐标</param>
-        /// <param name="canvasArea">画布区域</param>
-        /// <returns>地图坐标</returns>
-        public Vector2Int ScreenToMapPositionInt(Vector2 screenPos, Rect canvasArea)
-        {
-            Vector2 mapPos = ScreenToMapPosition(screenPos, canvasArea);
-            return new Vector2Int(Mathf.FloorToInt(mapPos.x), Mathf.FloorToInt(mapPos.y));
-        }
-
+        
         /// <summary>
         /// 绘制错误覆盖层
         /// </summary>
@@ -590,6 +885,9 @@ namespace MapEditor
             return brightness > 0.5f ? Color.black : Color.white;
         }
 
+        /// <summary>
+        /// 绘制空画布
+        /// </summary>
         private void DrawEmptyCanvas(Rect canvasArea)
         {
             EditorGUI.DrawRect(canvasArea, new Color(0.1f, 0.1f, 0.1f));
@@ -597,17 +895,26 @@ namespace MapEditor
             GUIStyle centeredStyle = new GUIStyle(EditorStyles.label);
             centeredStyle.alignment = TextAnchor.MiddleCenter;
             centeredStyle.normal.textColor = Color.gray;
+            centeredStyle.fontSize = 14;
 
-            EditorGUI.LabelField(canvasArea, "No map loaded. Create a new map or open an existing one.", centeredStyle);
+            string message = "No map loaded.\nCreate a new map or open an existing one.";
+            EditorGUI.LabelField(canvasArea, message, centeredStyle);
 
-            Rect buttonRect = new Rect(canvasArea.center.x - 50, canvasArea.center.y + 20, 100, 25);
+            // 添加创建新地图的按钮
+            Rect buttonRect = new Rect(canvasArea.center.x - 50, canvasArea.center.y + 40, 100, 25);
             if (GUI.Button(buttonRect, "New Map"))
             {
                 OnNewMap();
             }
+
+            // 添加打开地图的按钮
+            Rect openButtonRect = new Rect(canvasArea.center.x - 50, canvasArea.center.y + 70, 100, 25);
+            if (GUI.Button(openButtonRect, "Open Map"))
+            {
+                OnOpenMap();
+            }
         }
 
-// 更新 DrawStatusBar 方法显示当前状态：
 
         private void DrawStatusBar()
         {
@@ -668,7 +975,7 @@ namespace MapEditor
         }
 
         /// <summary>
-        /// 计算绘制区域（确保在画布范围内）
+        /// 计算绘制区域 - 修复版本
         /// </summary>
         private Rect CalculateDrawArea(Rect canvasArea)
         {
@@ -682,11 +989,13 @@ namespace MapEditor
 
             if (canvasAspect > mapAspect)
             {
+                // 基于高度计算
                 baseHeight = canvasArea.height * 0.95f;
                 baseWidth = baseHeight * mapAspect;
             }
             else
             {
+                // 基于宽度计算
                 baseWidth = canvasArea.width * 0.95f;
                 baseHeight = baseWidth / mapAspect;
             }
@@ -695,81 +1004,20 @@ namespace MapEditor
             float scaledWidth = baseWidth * zoomLevel;
             float scaledHeight = baseHeight * zoomLevel;
 
-            // 应用平移偏移（但确保不会超出画布）
+            // 中心位置（不包含平移，平移在绘制时单独处理）
             float centerX = canvasArea.center.x;
             float centerY = canvasArea.center.y;
 
-            // 计算初始位置
             Rect drawArea = new Rect(
-                centerX - scaledWidth * 0.5f + panOffset.x,
-                centerY - scaledHeight * 0.5f + panOffset.y,
+                centerX - scaledWidth * 0.5f,  // 注意：这里不包含平移
+                centerY - scaledHeight * 0.5f, // 平移在绘制纹理时单独处理
                 scaledWidth,
                 scaledHeight
             );
 
-            // 确保不会超出画布边界
-            if (drawArea.x < canvasArea.x)
-            {
-                drawArea.x = canvasArea.x;
-            }
-
-            if (drawArea.y < canvasArea.y)
-            {
-                drawArea.y = canvasArea.y;
-            }
-
-            if (drawArea.xMax > canvasArea.xMax)
-            {
-                drawArea.x = canvasArea.xMax - drawArea.width;
-            }
-
-            if (drawArea.yMax > canvasArea.yMax)
-            {
-                drawArea.y = canvasArea.yMax - drawArea.height;
-            }
-
             return drawArea;
         }
-
-        /// <summary>
-        /// 绘制网格
-        /// </summary>
-        private void DrawGrid(Rect drawArea)
-        {
-            if (currentMapData == null) return;
-
-            Handles.BeginGUI();
-
-            // 根据缩放级别调整网格密度
-            float gridDensity = Mathf.Clamp(20f * zoomLevel, 5f, 200f);
-            Color gridColor = new Color(1, 1, 1, Mathf.Clamp(0.1f * zoomLevel, 0.05f, 0.3f));
-            Handles.color = gridColor;
-
-            // 计算网格起始位置（考虑平移）
-            float startX = -panOffset.x * zoomLevel;
-            float startY = -panOffset.y * zoomLevel;
-            float endX = startX + currentMapData.width * zoomLevel;
-            float endY = startY + currentMapData.height * zoomLevel;
-
-            // 绘制垂直线
-            for (float x = startX; x <= endX; x += gridDensity)
-            {
-                Vector3 start = new Vector3(drawArea.x + x, drawArea.y);
-                Vector3 end = new Vector3(drawArea.x + x, drawArea.y + drawArea.height);
-                Handles.DrawLine(start, end);
-            }
-
-            // 绘制水平线
-            for (float y = startY; y <= endY; y += gridDensity)
-            {
-                Vector3 start = new Vector3(drawArea.x, drawArea.y + y);
-                Vector3 end = new Vector3(drawArea.x + drawArea.width, drawArea.y + y);
-                Handles.DrawLine(start, end);
-            }
-
-            Handles.EndGUI();
-        }
-
+        
         /// <summary>
         /// 处理画布事件
         /// </summary>
@@ -838,111 +1086,217 @@ namespace MapEditor
                     break;
 
                 case EventType.KeyDown:
-                    // 添加键盘快捷键
-                    if (e.keyCode == KeyCode.Home) // Home键 - 重置视图
-                    {
-                        ResetView();
-                        e.Use();
-                    }
-                    else if (e.keyCode == KeyCode.Equals || e.keyCode == KeyCode.Plus) // +键 - 放大
-                    {
-                        zoomLevel = Mathf.Clamp(zoomLevel * 1.2f, 0.1f, 10f);
-                        e.Use();
-                    }
-                    else if (e.keyCode == KeyCode.Minus) // -键 - 缩小
-                    {
-                        zoomLevel = Mathf.Clamp(zoomLevel / 1.2f, 0.1f, 10f);
-                        e.Use();
-                    }
-
+                    HandleKeyEvents(e);
                     break;
             }
 
             // 更新鼠标光标
             UpdateMouseCursor();
         }
-
-        /// <summary>
-        /// 处理缩放（带边界检查）
-        /// </summary>
-        private void HandleZoom(Vector2 mousePos, Rect drawArea, float scrollDelta)
-        {
-            if (currentMapData == null) return;
-
-            // 保存缩放前的状态
-            Vector2 mapPosBeforeZoom = ScreenToMapPosition(mousePos, drawArea);
-            float oldZoom = zoomLevel;
-
-            // 计算新的缩放级别
-            float zoomDelta = -scrollDelta * 0.1f;
-            float newZoomLevel = Mathf.Clamp(zoomLevel + zoomDelta, 0.1f, 10f);
-
-            if (Mathf.Approximately(newZoomLevel, zoomLevel))
-                return;
-
-            zoomLevel = newZoomLevel;
-
-            // 重新计算绘制区域
-            Rect canvasArea = CalculateCanvasArea();
-            Rect newDrawArea = CalculateDrawArea(canvasArea);
-            Vector2 mapPosAfterZoom = ScreenToMapPosition(mousePos, newDrawArea);
-
-            // 调整平移以保持鼠标位置
-            Vector2 mapPosDelta = mapPosAfterZoom - mapPosBeforeZoom;
-            panOffset -= mapPosDelta;
-
-            // 强制限制边界
-            ForceClampToBounds();
-
-            Repaint();
-        }
-
-        /// <summary>
-        /// 强制限制在边界内
-        /// </summary>
-        private void ForceClampToBounds()
-        {
-            Rect canvasArea = CalculateCanvasArea();
-            Rect drawArea = CalculateDrawArea(canvasArea);
-
-            // 如果绘制区域完全在画布内，重置平移
-            if (drawArea.width <= canvasArea.width && drawArea.height <= canvasArea.height)
+/// <summary>
+/// 处理键盘事件
+/// </summary>
+private void HandleKeyEvents(Event e)
+{
+    switch (e.keyCode)
+    {
+        case KeyCode.B:
+            if (!e.control && !e.alt && !e.shift)
             {
-                panOffset = Vector2.zero;
-                return;
+                SetCurrentTool(ToolType.Pencil);
+                e.Use();
             }
-
-            // 检查左右边界
-            if (drawArea.x > canvasArea.x)
+            break;
+        case KeyCode.G:
+            if (!e.control && !e.alt && !e.shift)
             {
-                // 左边超出，向右调整
-                panOffset.x -= (drawArea.x - canvasArea.x) / zoomLevel;
+                SetCurrentTool(ToolType.Bucket);
+                e.Use();
             }
-            else if (drawArea.xMax < canvasArea.xMax)
+            break;
+        case KeyCode.E:
+            if (!e.control && !e.alt && !e.shift)
             {
-                // 右边超出，向左调整
-                panOffset.x += (canvasArea.xMax - drawArea.xMax) / zoomLevel;
+                SetCurrentTool(ToolType.Eraser);
+                e.Use();
             }
-
-            // 检查上下边界
-            if (drawArea.y > canvasArea.y)
+            break;
+        case KeyCode.I:
+            if (!e.control && !e.alt && !e.shift)
             {
-                // 上边超出，向下调整
-                panOffset.y -= (drawArea.y - canvasArea.y) / zoomLevel;
+                SetCurrentTool(ToolType.Eyedropper);
+                e.Use();
             }
-            else if (drawArea.yMax < canvasArea.yMax)
+            break;
+        case KeyCode.S:
+            if (!e.control && !e.alt && !e.shift)
             {
-                // 下边超出，向上调整
-                panOffset.y += (canvasArea.yMax - drawArea.yMax) / zoomLevel;
+                SetCurrentTool(ToolType.Selection);
+                e.Use();
             }
+            break;
+        case KeyCode.Z:
+            if (e.control && !e.alt && !e.shift)
+            {
+                OnUndo();
+                e.Use();
+            }
+            break;
+        case KeyCode.Y:
+            if (e.control && !e.alt && !e.shift)
+            {
+                OnRedo();
+                e.Use();
+            }
+            break;
+        case KeyCode.A:
+            if (e.control && !e.alt && !e.shift)
+            {
+                OnSelectAll();
+                e.Use();
+            }
+            break;
+        case KeyCode.D:
+            if (e.control && !e.alt && !e.shift)
+            {
+                OnClearSelection();
+                e.Use();
+            }
+            break;
+        case KeyCode.Delete:
+            if (hasSelection && !e.control && !e.alt && !e.shift)
+            {
+                DeleteSelectionOptimized();
+                e.Use();
+            }
+            break;
+        case KeyCode.F11:
+            ToggleFullScreen();
+            e.Use();
+            break;
+        case KeyCode.F1:
+            ToggleGrid();
+            e.Use();
+            break;
+        case KeyCode.F2:
+            ToggleLayersPanel();
+            e.Use();
+            break;
+        case KeyCode.F3:
+            ToggleBackground();
+            e.Use();
+            break;
+        case KeyCode.Equals: // +键
+        case KeyCode.Plus:
+            if (e.control && !e.alt && !e.shift)
+            {
+                SetZoomLevel(zoomLevel * 1.2f, Event.current.mousePosition);
+                e.Use();
+            }
+            break;
+        case KeyCode.Minus: // -键
+            if (e.control && !e.alt && !e.shift)
+            {
+                SetZoomLevel(zoomLevel / 1.2f, Event.current.mousePosition);
+                e.Use();
+            }
+            break;
+        case KeyCode.Alpha0: // 0键 - 适应窗口
+            if (e.control && !e.alt && !e.shift)
+            {
+                ZoomToFit();
+                e.Use();
+            }
+            break;
+        case KeyCode.Alpha1: // 1键 - 实际大小
+            if (e.control && !e.alt && !e.shift)
+            {
+                ZoomToActualSize();
+                e.Use();
+            }
+            break;
+    }
+}
 
-            // 最终限制
-            ClampPanOffset();
-        }
 
-        /// <summary>
-        /// 更新鼠标光标
-        /// </summary>
+/// <summary>
+/// 处理缩放
+/// </summary>
+private void HandleZoom(Vector2 mousePos, Rect drawArea, float scrollDelta)
+{
+    if (currentMapData == null) return;
+
+    // 保存缩放前的状态
+    Vector2 mapPosBeforeZoom = ScreenToMapPosition(mousePos, drawArea);
+    float oldZoom = zoomLevel;
+
+    // 计算新的缩放级别
+    float zoomDelta = -scrollDelta * 0.1f;
+    float newZoomLevel = Mathf.Clamp(zoomLevel + zoomDelta, 0.1f, 10f);
+
+    if (Mathf.Approximately(newZoomLevel, zoomLevel))
+        return;
+
+    zoomLevel = newZoomLevel;
+
+    // 重新计算绘制区域
+    Rect canvasArea = CalculateCanvasArea();
+    Rect newDrawArea = CalculateDrawArea(canvasArea);
+    Vector2 mapPosAfterZoom = ScreenToMapPosition(mousePos, newDrawArea);
+
+    // 调整平移以保持鼠标位置
+    Vector2 mapPosDelta = mapPosAfterZoom - mapPosBeforeZoom;
+    panOffset -= mapPosDelta;
+
+    // 强制限制边界
+    ForceClampToBounds();
+
+    Repaint();
+}
+
+/// <summary>
+/// 强制限制在边界内
+/// </summary>
+private void ForceClampToBounds()
+{
+    Rect canvasArea = CalculateCanvasArea();
+    Rect drawArea = CalculateDrawArea(canvasArea);
+
+    // 如果绘制区域完全在画布内，重置平移
+    if (drawArea.width <= canvasArea.width && drawArea.height <= canvasArea.height)
+    {
+        panOffset = Vector2.zero;
+        return;
+    }
+
+    // 检查左右边界
+    if (drawArea.x > canvasArea.x)
+    {
+        // 左边超出，向右调整
+        panOffset.x -= (drawArea.x - canvasArea.x) / zoomLevel;
+    }
+    else if (drawArea.xMax < canvasArea.xMax)
+    {
+        // 右边超出，向左调整
+        panOffset.x += (canvasArea.xMax - drawArea.xMax) / zoomLevel;
+    }
+
+    // 检查上下边界
+    if (drawArea.y > canvasArea.y)
+    {
+        // 上边超出，向下调整
+        panOffset.y -= (drawArea.y - canvasArea.y) / zoomLevel;
+    }
+    else if (drawArea.yMax < canvasArea.yMax)
+    {
+        // 下边超出，向上调整
+        panOffset.y += (canvasArea.yMax - drawArea.yMax) / zoomLevel;
+    }
+
+    // 最终限制
+    ClampPanOffset();
+}
+
         private void UpdateMouseCursor()
         {
             if (isPanning)
@@ -964,6 +1318,10 @@ namespace MapEditor
                             MouseCursor.Arrow);
                         break;
                     case ToolType.Eyedropper:
+                        EditorGUIUtility.AddCursorRect(new Rect(0, 0, position.width, position.height),
+                            MouseCursor.Arrow);
+                        break;
+                    case ToolType.Selection:
                         EditorGUIUtility.AddCursorRect(new Rect(0, 0, position.width, position.height),
                             MouseCursor.Arrow);
                         break;
@@ -1028,6 +1386,7 @@ namespace MapEditor
                             OnSelectAll();
                             e.Use();
                         }
+
                         break;
                     case KeyCode.D:
                         if (e.control)
@@ -1035,6 +1394,7 @@ namespace MapEditor
                             OnClearSelection();
                             e.Use();
                         }
+
                         break;
                     case KeyCode.Delete:
                         if (hasSelection)
@@ -1042,6 +1402,7 @@ namespace MapEditor
                             DeleteSelectionOptimized();
                             e.Use();
                         }
+
                         break;
                     case KeyCode.F11:
                         ToggleFullScreen();
@@ -1094,10 +1455,44 @@ namespace MapEditor
                         }
 
                         break;
+                    case KeyCode.F9:
+                        if (e.control)
+                        {
+                            TestGridDisplay();
+                            e.Use();
+                        }
+                        break;
+            
+                    case KeyCode.F10:
+                        if (e.control)
+                        {
+                            // 强制显示网格
+                            showGrid = true;
+                            zoomLevel = 5.0f; // 放大以便看到网格
+                            panOffset = Vector2.zero;
+                            Repaint();
+                            e.Use();
+                        }
+                        break;
                 }
             }
         }
 
+        private void TestGridDisplay()
+        {
+            if (currentMapData == null) return;
+    
+            float pixelWidth = position.width / currentMapData.width;
+            float pixelHeight = position.height / currentMapData.height;
+    
+            Debug.Log($"Grid Test:\n" +
+                      $"Map Size: {currentMapData.width}x{currentMapData.height}\n" +
+                      $"Window Size: {position.width}x{position.height}\n" +
+                      $"Pixel Size: {pixelWidth:F3}x{pixelHeight:F3}\n" +
+                      $"Zoom Level: {zoomLevel:F2}x\n" +
+                      $"Should Show Grid: {pixelWidth > 0.5f && pixelHeight > 0.5f}");
+        }
+        
 // 添加全屏切换方法
         private void ToggleFullScreen()
         {
@@ -1199,30 +1594,100 @@ namespace MapEditor
 
         private void OnImportPNG()
         {
-            // 实现PNG导入逻辑
-        }
-
-        private void OnExportPNG()
-        {
-            if (currentMapData != null && currentMapData.GetColorMapTexture() != null)
+            string path = EditorUtility.OpenFilePanel("Import PNG", "Assets", "png");
+            if (!string.IsNullOrEmpty(path))
             {
-                string path = EditorUtility.SaveFilePanel("Export PNG", "", currentMapData.name, "png");
-                if (!string.IsNullOrEmpty(path))
+                if (currentMapData == null)
                 {
-                    byte[] pngData = currentMapData.GetColorMapTexture().EncodeToPNG();
-                    System.IO.File.WriteAllBytes(path, pngData);
-                    AssetDatabase.Refresh();
+                    OnNewMap(); // 创建新地图
+                }
+
+                Texture2D importedTexture = MapDataImporter.ImportBackgroundImage(path);
+                if (importedTexture != null)
+                {
+                    currentMapData.ImportFromTexture(importedTexture);
+                    Debug.Log($"Imported PNG: {importedTexture.width}x{importedTexture.height}");
+                    Repaint();
                 }
             }
         }
 
+/// <summary>
+/// 导出PNG文件
+/// </summary>
+private void OnExportPNG()
+{
+    if (currentMapData != null)
+    {
+        string path = EditorUtility.SaveFilePanel("Export PNG", "", currentMapData.name, "png");
+        if (!string.IsNullOrEmpty(path))
+        {
+            bool success = MapDataExporter.ExportToPNG(currentMapData, path, showBackground);
+            if (success)
+            {
+                // 刷新项目窗口（如果导出到Assets目录）
+                if (path.StartsWith(Application.dataPath))
+                {
+                    AssetDatabase.Refresh();
+                }
+                
+                EditorUtility.DisplayDialog("Export Successful", 
+                    $"Map exported successfully to:\n{path}", "OK");
+            }
+            else
+            {
+                EditorUtility.DisplayDialog("Export Failed", 
+                    "Failed to export map. Check console for details.", "OK");
+            }
+        }
+    }
+    else
+    {
+        EditorUtility.DisplayDialog("Export Failed", 
+            "No map data to export. Please create or open a map first.", "OK");
+    }
+}
+
+/// <summary>
+/// 导出配置文件
+/// </summary>
+private void OnExportConfig()
+{
+    if (currentMapData != null)
+    {
+        string path = EditorUtility.SaveFilePanel("Export Config", "", currentMapData.name, "txt");
+        if (!string.IsNullOrEmpty(path))
+        {
+            bool success = MapDataExporter.ExportToConfig(currentMapData, path);
+            if (success)
+            {
+                // 刷新项目窗口（如果导出到Assets目录）
+                if (path.StartsWith(Application.dataPath))
+                {
+                    AssetDatabase.Refresh();
+                }
+                
+                EditorUtility.DisplayDialog("Export Successful", 
+                    $"Config exported successfully to:\n{path}", "OK");
+            }
+            else
+            {
+                EditorUtility.DisplayDialog("Export Failed", 
+                    "Failed to export config. Check console for details.", "OK");
+            }
+        }
+    }
+    else
+    {
+        EditorUtility.DisplayDialog("Export Failed", 
+            "No map data to export. Please create or open a map first.", "OK");
+    }
+}
+
         public void RunErrorCheck()
         {
-            // 实现错误检查逻辑
-            EditorUtility.DisplayDialog("Error Check", "Error check completed!", "OK");
+            errorDetectionManager?.RunErrorCheck();
         }
-
-        // 在 MapEditorWindow 类中添加这些方法：
 
         /// <summary>
         /// 切换网格可见性
@@ -1451,7 +1916,8 @@ namespace MapEditor
             Repaint();
         }
 
-        /// <summary>
+
+        // <summary>
         /// 缩放到实际大小
         /// </summary>
         public void ZoomToActualSize()
@@ -1528,17 +1994,12 @@ namespace MapEditor
 
             return $"Zoom: {zoomLevel:F2}x\nPan: ({panOffset.x:F0}, {panOffset.y:F0})\n{boundsState}";
         }
-        
-        // 在 MapEditorWindow 类中添加：
 
         /// <summary>
         /// 获取当前选择的 Block ID
         /// </summary>
         public int GetCurrentBlockId()
         {
-            // 这里可以根据当前颜色自动查找对应的 Block ID
-            // 或者让用户手动选择
-    
             Color currentColor = GetCurrentColor();
             if (currentMapData != null)
             {
@@ -1548,8 +2009,7 @@ namespace MapEditor
                     return blockId;
                 }
             }
-    
-            // 如果没有找到对应的 Block ID，返回默认值或创建新的
+
             return 1; // 默认 Block ID
         }
 
@@ -1572,9 +2032,11 @@ namespace MapEditor
             {
                 return currentMapData.GetColorBlock(blockId);
             }
+
             return null;
         }
-        
+
+
         private void DrawUndoRedoStatus()
         {
             EditorGUILayout.BeginHorizontal();
@@ -1584,15 +2046,17 @@ namespace MapEditor
                 {
                     OnUndo();
                 }
+
                 EditorGUI.EndDisabledGroup();
-        
+
                 EditorGUI.BeginDisabledGroup(!undoRedoManager.CanRedo());
                 if (GUILayout.Button("Redo", GUILayout.Width(60)))
                 {
                     OnRedo();
                 }
+
                 EditorGUI.EndDisabledGroup();
-        
+
                 EditorGUILayout.LabelField(undoRedoManager.GetUndoDescription(), EditorStyles.miniLabel);
             }
             EditorGUILayout.EndHorizontal();

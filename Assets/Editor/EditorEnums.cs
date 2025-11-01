@@ -1,6 +1,4 @@
-﻿using System;
-
-namespace MapEditor
+﻿namespace MapEditor
 {
     public enum ToolType
     {

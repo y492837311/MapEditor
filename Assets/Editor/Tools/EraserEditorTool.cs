@@ -1,9 +1,6 @@
 ﻿using UnityEngine;
-using System.Linq;
-using System.Reflection;
 using UnityEditor;
-using UnityEngine;
-using UnityEngine.UIElements;
+
 namespace MapEditor
 {
     public class EraserEditorTool : BaseEditorTool
@@ -24,6 +21,8 @@ namespace MapEditor
         {
             if (!IsPositionValid(position)) return;
 
+            StartRecordingWithSnapshot($"Erase at ({position.x}, {position.y})");
+            
             isErasing = true;
             lastPosition = position;
             EraseAtPosition(position);
@@ -45,8 +44,19 @@ namespace MapEditor
             if (!isErasing) return;
 
             isErasing = false;
-            EditorUtility.SetDirty(editorWindow.GetCurrentMapData());
-            editorWindow.GetCurrentMapData().ApplyChanges();
+            FlushPendingOperations();
+            FinishRecording();
+            
+            var mapData = editorWindow.GetCurrentMapData();
+            if (mapData != null)
+            {
+                EditorUtility.SetDirty(mapData);
+            }
+        }
+
+        public override void OnMouseMove(Vector2Int position)
+        {
+            // 可选的鼠标移动处理
         }
 
         public override void DrawPreview(Rect canvasArea)
@@ -59,24 +69,40 @@ namespace MapEditor
 
             if (canvasArea.Contains(mousePos))
             {
-                Vector2 mapPos = editorWindow.ScreenToMapPosition(mousePos, canvasArea);
-                Vector2Int intPos = new Vector2Int(Mathf.FloorToInt(mapPos.x), Mathf.FloorToInt(mapPos.y));
-                
-                if (IsPositionValid(intPos))
+                Vector2Int mapPos = ScreenToMapPosition(mousePos, canvasArea);
+                if (IsPositionValid(mapPos))
                 {
-                    DrawBrushPreview(canvasArea, intPos, editorWindow.GetBrushSize(), new Color(1, 0, 0, 0.3f));
+                    DrawBrushPreview(canvasArea, mapPos, editorWindow.GetBrushSize(), new Color(1, 0, 0, 0.3f));
+                }
+            }
+        }
+        
+        public override void DrawPreviewAligned(Rect canvasArea, float gridWidth, float gridHeight)
+        {
+            var mapData = editorWindow.GetCurrentMapData();
+            if (mapData == null) return;
+
+            Event e = Event.current;
+            Vector2 mousePos = e.mousePosition;
+
+            if (canvasArea.Contains(mousePos))
+            {
+                Vector2Int mapPos = editorWindow.ScreenToMapPositionInt(mousePos, canvasArea);
+                if (IsPositionValid(mapPos))
+                {
+                    DrawBrushPreviewAligned(canvasArea, mapPos, editorWindow.GetBrushSize(), 
+                        new Color(1, 0, 0, 0.3f), gridWidth, gridHeight);
                 }
             }
         }
 
         private void EraseAtPosition(Vector2Int position)
         {
-            var mapData = editorWindow.GetCurrentMapData();
             int brushSize = editorWindow.GetBrushSize();
 
             if (brushSize == 1)
             {
-                mapData.SetPixel(position.x, position.y, new Color(0, 0, 0, 0), 0);
+                SetGridPixel(position.x, position.y, new Color32(0, 0, 0, 0), 0);
             }
             else
             {
@@ -86,7 +112,6 @@ namespace MapEditor
 
         private void EraseLine(Vector2Int start, Vector2Int end)
         {
-            var mapData = editorWindow.GetCurrentMapData();
             int brushSize = editorWindow.GetBrushSize();
 
             if (brushSize == 1)
@@ -101,8 +126,8 @@ namespace MapEditor
 
         private void EraseBrush(Vector2Int center, int size)
         {
-            var mapData = editorWindow.GetCurrentMapData();
             int radius = size / 2;
+            Color32 eraseColor = new Color32(0, 0, 0, 0);
 
             for (int x = -radius; x <= radius; x++)
             {
@@ -111,10 +136,7 @@ namespace MapEditor
                     if (x * x + y * y <= radius * radius)
                     {
                         Vector2Int pos = new Vector2Int(center.x + x, center.y + y);
-                        if (IsPositionValid(pos))
-                        {
-                            mapData.SetPixel(pos.x, pos.y, new Color(0, 0, 0, 0), 0);
-                        }
+                        SetGridPixel(pos.x, pos.y, eraseColor, 0);
                     }
                 }
             }
@@ -122,7 +144,7 @@ namespace MapEditor
 
         private void EraseLineSinglePixel(Vector2Int start, Vector2Int end)
         {
-            var mapData = editorWindow.GetCurrentMapData();
+            Color32 eraseColor = new Color32(0, 0, 0, 0);
             
             int dx = Mathf.Abs(end.x - start.x);
             int dy = Mathf.Abs(end.y - start.y);
@@ -134,10 +156,7 @@ namespace MapEditor
 
             while (true)
             {
-                if (IsPositionValid(current))
-                {
-                    mapData.SetPixel(current.x, current.y, new Color(0, 0, 0, 0), 0);
-                }
+                SetGridPixel(current.x, current.y, eraseColor, 0);
 
                 if (current.x == end.x && current.y == end.y) break;
 
@@ -159,19 +178,19 @@ namespace MapEditor
         {
             EraseLineSinglePixel(start, end);
             
-            Vector2 dir = ((Vector2)(end - start)).normalized;
-            Vector2 perpendicular = new Vector2(-dir.y, dir.x);
-            
-            int radius = thickness / 2;
-            for (int i = -radius; i <= radius; i++)
+            if (thickness > 1)
             {
-                Vector2 offset = perpendicular * i;
-                Vector2Int offsetStart = start + Vector2Int.RoundToInt(offset);
-                Vector2Int offsetEnd = end + Vector2Int.RoundToInt(offset);
-                
-                if (IsPositionValid(offsetStart) && IsPositionValid(offsetEnd))
+                int extra = thickness - 1;
+                for (int i = 1; i <= extra; i++)
                 {
-                    EraseLineSinglePixel(offsetStart, offsetEnd);
+                    EraseLineSinglePixel(
+                        new Vector2Int(start.x, start.y + i),
+                        new Vector2Int(end.x, end.y + i)
+                    );
+                    EraseLineSinglePixel(
+                        new Vector2Int(start.x, start.y - i),
+                        new Vector2Int(end.x, end.y - i)
+                    );
                 }
             }
         }

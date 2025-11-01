@@ -9,7 +9,7 @@ namespace MapEditor
     {
         public static bool ExportToPNG(MapDataAsset mapData, string filePath, bool includeBackground = false)
         {
-            if (mapData == null || mapData.GetColorMapTexture() == null)
+            if (mapData == null)
             {
                 Debug.LogError("No map data to export");
                 return false;
@@ -17,7 +17,7 @@ namespace MapEditor
 
             try
             {
-                Texture2D exportTexture = mapData.GetColorMapTexture();
+                Texture2D exportTexture = mapData.GetRenderTexture();
 
                 if (includeBackground && mapData.backgroundTexture != null)
                 {
@@ -37,7 +37,7 @@ namespace MapEditor
                 File.WriteAllBytes(filePath, pngData);
 
                 // 清理临时纹理
-                if (includeBackground && exportTexture != mapData.GetColorMapTexture())
+                if (includeBackground && exportTexture != mapData.GetRenderTexture())
                 {
                     Object.DestroyImmediate(exportTexture);
                 }
@@ -55,7 +55,7 @@ namespace MapEditor
         private static Texture2D MergeWithBackground(MapDataAsset mapData)
         {
             Texture2D result = new Texture2D(mapData.width, mapData.height, TextureFormat.RGBA32, false);
-            Color32[] colorPixels = mapData.GetColorMapTexture().GetPixels32();
+            Color32[] colorPixels = mapData.GetRenderTexture().GetPixels32();
             Color32[] backgroundPixels = mapData.backgroundTexture.GetPixels32();
 
             // 调整背景图大小（如果需要）
@@ -63,7 +63,7 @@ namespace MapEditor
             {
                 // 这里可以实现背景图缩放逻辑
                 Debug.LogWarning("Background size doesn't match map size. Background scaling not implemented.");
-                return mapData.GetColorMapTexture();
+                return mapData.GetRenderTexture();
             }
 
             // 合并像素：颜色地图的透明部分显示背景
@@ -119,24 +119,18 @@ namespace MapEditor
                 
                 configBuilder.AppendLine();
                 
-                // 像素数据（简化版本，实际可能需要更复杂的格式）
+                // 像素数据
                 configBuilder.AppendLine("[PixelData]");
                 configBuilder.AppendLine("# Format: x,y,block_id");
                 
-                var colorMap = mapData.GetColorMapTexture();
-                if (colorMap != null)
+                for (int y = 0; y < mapData.height; y += 1) // 可以调整步长来减少数据量
                 {
-                    Color32[] pixels = colorMap.GetPixels32();
-                    for (int y = 0; y < mapData.height; y++)
+                    for (int x = 0; x < mapData.width; x += 1)
                     {
-                        for (int x = 0; x < mapData.width; x++)
+                        var pixel = mapData.GetGridPixel(x, y);
+                        if (pixel.blockId != 0)
                         {
-                            int index = y * mapData.width + x;
-                            int blockId = FindBlockIdForColor(mapData, pixels[index]);
-                            if (blockId != 0)
-                            {
-                                configBuilder.AppendLine($"{x},{y},{blockId}");
-                            }
+                            configBuilder.AppendLine($"{x},{y},{pixel.blockId}");
                         }
                     }
                 }
@@ -157,28 +151,6 @@ namespace MapEditor
         private static string ColorToHex(Color color)
         {
             return $"#{ColorUtility.ToHtmlStringRGB(color)}";
-        }
-
-        private static int FindBlockIdForColor(MapDataAsset mapData, Color32 color)
-        {
-            if (color.a == 0) return 0;
-
-            foreach (var block in mapData.colorBlocks)
-            {
-                if (ColorsEqual(block.color, color))
-                {
-                    return block.id;
-                }
-            }
-            return 0;
-        }
-
-        private static bool ColorsEqual(Color a, Color32 b)
-        {
-            return Mathf.Approximately(a.r, b.r / 255f) &&
-                   Mathf.Approximately(a.g, b.g / 255f) &&
-                   Mathf.Approximately(a.b, b.b / 255f) &&
-                   Mathf.Approximately(a.a, b.a / 255f);
         }
 
         public static void ExportWithDialog(MapDataAsset mapData, ExportFormat format)
